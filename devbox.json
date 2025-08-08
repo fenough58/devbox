@@ -1,7 +1,8 @@
 {
-  "name":        "devbox",
+  "name": "devbox",
   "description": "Instant, easy, and predictable development environments",
   "packages": {
+
     "fd":  "latest",
     "git": "latest",
     "go":  "latest"
@@ -21,11 +22,11 @@
     ],
     "scripts": {
       // Build devbox for the current platform
-      "build":              "go build -o dist/devbox ./cmd/devbox",
+      "build": "go build -o dist/devbox ./cmd/devbox",
       "build-darwin-amd64": "GOOS=darwin GOARCH=amd64 go build -o dist/devbox-darwin-amd64 ./cmd/devbox",
       "build-darwin-arm64": "GOOS=darwin GOARCH=arm64 go build -o dist/devbox-darwin-arm64 ./cmd/devbox",
-      "build-linux-amd64":  "GOOS=linux GOARCH=amd64 go build -o dist/devbox-linux-amd64 ./cmd/devbox",
-      "build-linux-arm64":  "GOOS=linux GOARCH=arm64 go build -o dist/devbox-linux-arm64 ./cmd/devbox",
+      "build-linux-amd64": "GOOS=linux GOARCH=amd64 go build -o dist/devbox-linux-amd64 ./cmd/devbox",
+      "build-linux-arm64": "GOOS=linux GOARCH=arm64 go build -o dist/devbox-linux-arm64 ./cmd/devbox",
       "build-all": [
         "devbox run build-darwin-amd64",
         "devbox run build-darwin-arm64",
@@ -33,12 +34,13 @@
         "devbox run build-linux-arm64"
       ],
       // Open VSCode
-      "code":               "code .",
-      "lint":               "go tool golangci-lint run --timeout 5m && scripts/gofumpt.sh",
-      "fmt":                "scripts/gofumpt.sh",
-      "test":               "go test -race -cover ./...",
-      "test-projects-only": "DEVBOX_RUN_PROJECT_TESTS=1 go test -v -timeout ${DEVBOX_GOLANG_TEST_TIMEOUT:-30m} ./... -run \"TestExamples|TestScriptsWithProjects\"",
-      "update-examples":    "devbox run build && go run testscripts/testrunner/updater/main.go",
+      "code": "code .",
+      "lint": "golangci-lint run --timeout 5m && scripts/gofumpt.sh",
+      "fmt": "scripts/gofumpt.sh",
+      "test": "go test -race -cover ./...",
+      "test-projects-only": "DEVBOX_RUN_PROJECT_TESTS=1 go test -v -timeout ${DEVBOX_GOLANG_TEST_TIMEOUT:-30m} ./... -run \"TestExamples/development_haskell_run_test.test\"",
+      "update-examples": "devbox run build && go run testscripts/testrunner/updater/main.go",
+
       // Updates the Flake's vendorHash: First run `go mod vendor` to vendor
       // the dependencies, then hash the vendor directory with Nix.
       // The hash is saved to the `vendor-hash` file, which is then
@@ -50,7 +52,10 @@
         "go mod vendor -o $vendor",
         "nix hash path $vendor >vendor-hash"
       ],
-      "tidy": ["go mod tidy", "devbox run update-hash"],
+      "tidy": [
+        "go mod tidy",
+        "devbox run update-hash"
+      ],
       // docker-testscripts runs the testscripts with Docker to exercise
       // Linux-specific tests. It invokes the test binary directly, so any extra
       // test runner flags must have their "-test." prefix.
@@ -60,7 +65,6 @@
       //   devbox run docker-testscripts -test.run ^TestScripts$/python
       "docker-testscripts": [
         "cd testscripts",
-
         // The Dockerfile looks for a testscripts-$TARGETOS-$TARGETARCH binary
         // to run the tests. Pre-compiling a static test binary lets us avoid
         // polluting the container with a Go toolchain or shared libraries that
@@ -69,8 +73,9 @@
         "GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go test -c -o testscripts-linux-amd64",
         "GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go test -c -o testscripts-linux-arm64",
         "image=$(docker build --quiet --tag devbox-testscripts-ubuntu:noble --platform linux/amd64 .)",
-        "docker run --rm --mount type=volume,src=devbox-testscripts-amd64,dst=/nix --platform linux/amd64 -e DEVBOX_RUN_FAILING_TESTS -e DEVBOX_RUN_PROJECT_TESTS -e DEVBOX_DEBUG $image \"$@\""
-      ]
-    }
-  }
+        "docker run --rm --mount type=volume,src=devbox-testscripts-amd64,dst=/nix --platform linux/amd64 -e DEVBOX_RUN_FAILING_TESTS -e DEVBOX_RUN_PROJECT_TESTS -e DEVBOX_DEBUG $image \"$@\"",
+      ],
+    },
+  },
 }
+

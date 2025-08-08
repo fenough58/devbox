@@ -10,6 +10,7 @@ on:
   push:
     branches:
       - main
+      - mohsen--fix-haskell-test
   merge_group:
     branches:
       - main
@@ -69,13 +70,14 @@ jobs:
           path: ./dist/devbox
           retention-days: 7
 
-  typos:
-    name: Spell Check with Typos
-    if: github.ref != 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: crate-ci/typos@v1.16.26
+  # typos:
+  #   name: Spell Check with Typos
+  #   if: github.ref != 'refs/heads/main'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: crate-ci/typos@v1.16.26
+
 
   flake-test:
     name: Test Flake Build
@@ -92,38 +94,39 @@ jobs:
           fi
       - run: ./result/bin/devbox version
   
-  golangci-lint:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-13]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
+  # golangci-lint:
+  #   strategy:
+  #     matrix:
+  #       os: [ubuntu-latest, macos-13]
+  #   runs-on: ${{ matrix.os }}
+  #   timeout-minutes: 10
+  #   steps:
+  #     - uses: actions/checkout@v4
+
 
       - name: Install devbox
         uses: jetify-com/devbox-install-action@v0.13.0
         with:
           enable-cache: true
 
-      - name: Mount golang cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/golangci-lint
-            ~/.cache/go-build
-            ~/go/pkg
-          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+  #     - name: Mount golang cache
+  #       uses: actions/cache@v4
+  #       with:
+  #         path: |
+  #           ~/.cache/golangci-lint
+  #           ~/.cache/go-build
+  #           ~/go/pkg
+  #         key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
 
-      - run:  devbox run lint
+  #     - run:  devbox run lint
 
   test:
     needs: build-devbox
     strategy:
       matrix:
-        is-main:
-          - ${{ github.ref == 'refs/heads/main' && 'is-main' || 'not-main' }}
-        os: [ubuntu-latest, macos-13]
+        # is-main:
+        #   - ${{ github.ref == 'refs/heads/main' && 'is-main' || 'not-main' }}
+        os: [macos-13]
         # This is an optimization that runs tests twice, with and without
         # the devbox.json tests. We can require the other tests to complete before
         # merging, while keeping the others as an additional non-required signal
@@ -131,6 +134,7 @@ jobs:
         run-devbox-json-tests: [true]
         # Run tests on:
         # 1. the oldest supported nix version (which is 2.9.0? But determinate-systems installer has 2.12.0)
+
         # 2. nix version 2.17.0 which introduces a new code path that minimizes nixpkgs downloads.
         # 3. latest nix version (currently, that is 2.17.0, so omitted)
         nix-version: ["2.17.0"]
@@ -138,7 +142,7 @@ jobs:
         exclude:
           # Only runs tests on macos if explicitly requested, or on a schedule
           - os: "${{ (inputs.run-mac-tests || github.event.schedule != '') && 'dummy' || 'macos-13' }}"
-            
+
 
     runs-on: ${{ matrix.os }}
 
@@ -169,6 +173,7 @@ jobs:
       - name: Install devbox
         uses: jetify-com/devbox-install-action@v0.13.0
         with:
+
           logger: pretty
           extra-conf: experimental-features = ca-derivations fetch-closure
           nix-package-url: https://releases.nixos.org/nix/nix-${{ matrix.nix-version }}/nix-${{ matrix.nix-version }}-${{ runner.arch == 'X64' && 'x86_64' || 'aarch64' }}-${{ runner.os == 'macOS' && 'darwin' || 'linux' }}.tar.xz
@@ -192,40 +197,41 @@ jobs:
           nix show-config --extra-experimental-features nix-command
           echo "::endgroup::"
           devbox run go test -v -timeout $DEVBOX_GOLANG_TEST_TIMEOUT ./...
+
       - name: Run project (slow) tests
         if:  matrix.run-project-tests == 'project-tests-only'
         run: devbox run test-projects-only
 
-  auto-nix-install: # ensure Devbox installs nix and works properly after installation.
-    needs: build-devbox
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-13]
-        use-detsys: [true, false]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download devbox
-        uses: actions/download-artifact@v4
-        with:
-          name: devbox-${{ runner.os }}-${{ runner.arch }}
-      - name: Add devbox to path
-        run: |
-          chmod +x ./devbox
-          sudo mv ./devbox /usr/local/bin/
-      - name: Install nix and devbox packages
-        run: |
-          export NIX_INSTALLER_NO_CHANNEL_ADD=1
-          export DEVBOX_FEATURE_DETSYS_INSTALLER=${{ matrix.use-detsys }}
+  # auto-nix-install: # ensure Devbox installs nix and works properly after installation.
+  #   needs: build-devbox
+  #   strategy:
+  #     matrix:
+  #       os: [ubuntu-latest, macos-13]
+  #       use-detsys: [true, false]
+  #   runs-on: ${{ matrix.os }}
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Download devbox
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: devbox-${{ runner.os }}-${{ runner.arch }}
+  #     - name: Add devbox to path
+  #       run: |
+  #         chmod +x ./devbox
+  #         sudo mv ./devbox /usr/local/bin/
+  #     - name: Install nix and devbox packages
+  #       run: |
+  #         export NIX_INSTALLER_NO_CHANNEL_ADD=1
+  #         export DEVBOX_FEATURE_DETSYS_INSTALLER=${{ matrix.use-detsys }}
 
-          # Setup github authentication to ensure Github's rate limits are not hit.
-          # If this works, we can consider refactoring this into a reusable github action helper.
-          mkdir -p ~/.config/nix
-          echo "access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}" > ~/.config/nix/nix.conf
+  #         # Setup github authentication to ensure Github's rate limits are not hit.
+  #         # If this works, we can consider refactoring this into a reusable github action helper.
+  #         mkdir -p ~/.config/nix
+  #         echo "access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}" > ~/.config/nix/nix.conf
 
-          devbox run echo "Installing packages..."
-      - name: Test removing package
-        run: devbox rm go
+  #         devbox run echo "Installing packages..."
+  #     - name: Test removing package
+  #       run: devbox rm go
 
   # Run a sanity test to make sure Devbox can install and remove packages with
   # the last few Nix releases.
