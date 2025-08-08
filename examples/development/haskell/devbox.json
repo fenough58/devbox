@@ -1,19 +1,32 @@
 {
-    "packages": [
-        "gmp",
-        "stack",
-        "cabal-install",
-        "zlib",
-        "hpack"
-    ],
-    "shell": {
-        "init_hook": null,
-        "scripts": {
-            "run_test": [
-                "cd my-project",
-                "stack build",
-                "stack exec my-project-exe"
-            ]
-        }
+  "packages": {
+    "ghc": "latest",
+    "gmp": "latest",
+    "stack": "latest",
+    "cabal-install": "latest",
+    "zlib": "latest",
+    "hpack": "latest",
+    "darwin.Security": {
+      "version": "latest",
+      "platforms": [
+        "aarch64-darwin"
+      ]
+    },
+    "which": "latest"
+  },
+
+  "env": {
+    "PATH": "$PATH:/usr/bin"
+  },
+  "shell": {
+    "init_hook": null,
+    "scripts": {
+      "run_test": [
+        "echo $PATH",
+        "cd my-project",
+        "stack build",
+        "stack exec my-project-exe"
+      ]
     }
+  }
 }

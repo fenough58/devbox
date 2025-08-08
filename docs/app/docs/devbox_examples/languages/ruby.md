@@ -2,29 +2,23 @@
 title: Ruby
 ---
 
-[**Example Repo**](https://github.com/jetpack-io/devbox/tree/main/examples/development/ruby)
+[**Example Repo**](https://github.com/jetify-com/devbox/tree/main/examples/development/ruby)
 
-[![Open In Devbox.sh](https://jetpack.io/img/devbox/open-in-devbox.svg)](https://devbox.sh/github.com/jetpack-io/devbox?folder=examples/development/ruby)
 
-Ruby can be automatically configured by Devbox via the built-in Ruby Plugin. This plugin will activate automatically when you install Ruby 2.7 using `devbox add ruby`. 
+Ruby can be automatically configured by Devbox via the built-in Ruby Plugin. This plugin will activate automatically when you install Ruby 2.7 using `devbox add ruby`.
 
 ## Adding Ruby to your shell
 
-Run `devbox add ruby bundler`, or add the following to your `devbox.json`
+Run `devbox add ruby@3.1 bundler`, or add the following to your `devbox.json`
 
 ```json
     "packages": [
-        "ruby_3_1",
-        "bundler"
+        "ruby@3.1",
+        "bundler@latest"
     ]
 ```
 
-This will install Ruby 3.1 to your shell. 
-
-Other versions available include:  
-
-* `ruby` (Ruby 2.7)
-* `ruby_3_0` (Ruby 3.0)
+This will install Ruby 3.1 to your shell. You can find other installable versions of Ruby by running `devbox search ruby`. You can also view the available versions on [Nixhub](https://www.nixhub.io/packages/ruby)
 
 ## Ruby Plugin Support
 
@@ -39,4 +33,32 @@ RUBY_CONFDIR={PROJECT_DIR}/.devbox/virtenv/ruby
 GEMRC={PROJECT_DIR}/.devbox/virtenv/ruby/.gemrc
 GEM_HOME={PROJECT_DIR}/.devbox/virtenv/ruby
 PATH={PROJECT_DIR}/.devbox/virtenv/ruby/bin:$PATH
+```
+
+### Disabling the Ruby Plugin
+
+You can disable the Ruby plugin by running `devbox add ruby --disable-plugin`, or by setting the `disable_plugin` field in your `devbox.json`:
+
+```json
+{
+    "packages": {
+        "ruby": {
+            "version": "3.1",
+            "disable_plugin": true
+        },
+        "bundler": {
+            "version": "latest",
+        }
+    },
+}
+```
+
+## Bundler
+
+In case you are using bundler to install gems, bundler config file can still be used to pass configs and flags to install gems.
+
+`.bundle/config` file example:
+
+```dotenv
+BUNDLE_BUILD__SASSC: "--disable-lto"
 ```

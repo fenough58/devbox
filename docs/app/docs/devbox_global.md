@@ -1,25 +1,27 @@
 ---
 title: Use Devbox as your Primary Package Manager
+description: Install packages and tools system wide with Devbox Global
 ---
 
 In addition to managing isolated development environments, you can use Devbox as a general package manager. Devbox Global allows you to add packages to a global `devbox.json.` This is useful for installing a standard set of tools you want to use across multiple Devbox Projects.
 
-For example — if you use ripgrep as your preferred search tool, you can add it to your global Devbox profile with `devbox global add ripgrep`. Now whenever you start a Devbox shell, you will have ripgrep available, even if it's not in the project's devbox.json. 
+For example — if you use ripgrep as your preferred search tool, you can add it to your global Devbox profile with `devbox global add ripgrep`. Now whenever you start a Devbox shell, you will have ripgrep available, even if it's not in the project's devbox.json.
 
 <figure>
 
-![Installing ripgrep using `devbox global add ripgrep](../../app/static/img/devbox_global.svg)
+![Installing ripgrep using `devbox global add ripgrep](../static/img/devbox_global.svg)
 
 <figcaption>Installing Packages with Devbox Global</figcaption>
 </figure>
 
-You can also use `devbox global` to replace package managers like `brew` and `apt` by adding the global profile to your path. Because Devbox uses Nix to install packages, you can sync your global config to install the same packages on any machine. 
+You can also use `devbox global` to replace package managers like `brew` and `apt` by adding the global profile to your path. Because Devbox uses Nix to install packages, you can sync your global config to install the same packages on any machine.
 
 Devbox saves your global config in a `devbox.json` file in your home directory. This file can be shared with other users or checked into source control to synchronize it across machines.
 
+
 ## Adding and Managing Global Packages
 
-You can install a package using `devbox global add [<package>]`, where the package names should be a list of [Nix Packages](https://search.nixos.org/packages) you want to install. 
+You can install a package using `devbox global add [<package>]`, where the package names should be a list of [Nix Packages](https://search.nixos.org/packages) you want to install.
 
 For example, if we wanted to install ripgrep, vim, and git to our global profile, we could run:
 
@@ -32,9 +34,9 @@ vim is now installed
 git is now installed
 ```
 
-Once installed, the packages will be available whenever you start a Devbox Shell, even if it's not included in the project's `devbox.json`. 
+Once installed, the packages will be available whenever you start a Devbox Shell, even if it's not included in the project's `devbox.json`.
 
-To view a full list of global packages, you can run `devbox global list`: 
+To view a full list of global packages, you can run `devbox global list`:
 
 ```bash
 devbox global list
@@ -45,27 +47,26 @@ devbox global list
 * git
 ```
 
-To remove a global package, use: 
+To remove a global package, use:
 
 ```bash
-devbox global remove ripgrep
+devbox global rm ripgrep
 
-# Output: 
-ripgrep was removed
+# Output:
+removing 'github:NixOS/nixpkgs/ripgrep'
 ```
 
 ## Using Global Packages in your Host Shell
 
-If you want to make your global packages available in your host shell, you can add them to your shell PATH. Running `devbox global shellenv` will print the command necessary to source the packages. 
+If you want to make your global packages available in your host shell, you can add them to your shell PATH. Running `devbox global shellenv` will print the command necessary to source the packages.
 
-
-### Add Global Packages to your current Host Shell
-To temporarily add the global packages to your current shell, run: 
+### Add Global Packages to your Current Host Shell
+To temporarily add the global packages to your current shell, run:
 
 ```bash
-. <(devbox global shellenv)
+. <(devbox global shellenv --init-hook)
 ```
-    
+
 You can also add a hook to your shell's config to make them available whenever you launch your shell:
 
 ### Bash
@@ -73,7 +74,7 @@ You can also add a hook to your shell's config to make them available whenever y
 Add the following command to your `~/.bashrc` file:
 
 ```bash
-eval "$(devbox global shellenv)"
+eval "$(devbox global shellenv --init-hook)"
 ```
 
 Make sure to add this hook before any other hooks that use your global packages.
@@ -82,7 +83,7 @@ Make sure to add this hook before any other hooks that use your global packages.
 Add the following command to your `~/.zshrc` file:
 
 ```bash
-eval "$(devbox global shellenv)"
+eval "$(devbox global shellenv --init-hook)"
 ```
 
 ### Fish
@@ -90,25 +91,14 @@ eval "$(devbox global shellenv)"
 Add the following command to your `~/.config/fish/config.fish` file:
 
 ```bash
-devbox global shellenv | source
+devbox global shellenv --init-hook | source
 ```
 
+## Sharing Your Global Config with Git
 
-## Sharing Your Global Config
+You can use Git to synchronize your `devbox global` config across multiple machines using `devbox global push <remote>` and `devbox global pull <remote>`.
 
-Your global `devbox.json` will be stored in `$XDG_DATA_HOME/devbox/global/default/devbox.json`. If `$XDG_DATA_HOME` is not set, it will default to `~/.local/share/devbox/global/default/devbox.json`. 
-
-If you want to share your configuration with across machines or with other users, you can copy this file to a git repository or host it online.  You can then download and set the config as your global profile using `devbox global pull <path> | <url>`.
-
-```bash 
-# Load the global config from a file
-
-devbox global pull /path/to/devbox.json
-
-# Load the global config from a github repo
-
-devbox global pull https://raw.githubusercontent.com/org/repo/branch/path/to/devbox.json
-```
+Your global `devbox.json` and any other files in the Git remote will be stored in `$XDG_DATA_HOME/devbox/global/default`. If `$XDG_DATA_HOME` is not set, it will default to `~/.local/share/devbox/global/default`. You can view the current global directory by running `devbox global path`.
 
 ## Next Steps
 
@@ -117,7 +107,8 @@ devbox global pull https://raw.githubusercontent.com/org/repo/branch/path/to/dev
 * **[Getting Started](quickstart.mdx):** Learn how to install Devbox and create your first Devbox Shell.
 * **[Devbox Scripts](guides/scripts.md):** Automate setup steps and configuration for your shell using Devbox Scripts.
 * **[Configuration Guide](configuration.md):** Learn how to configure your shell and dev environment with `devbox.json`.
-* **[Browse Examples](https://github.com/jetpack-io/devbox-examples):** You can see how to create a development environment for your favorite tools or languages by browsing the Devbox Examples repo.
+* **[Browse Examples](https://github.com/jetify-com/devbox-examples):** You can see how to create a development environment for your favorite tools or languages by browsing the Devbox Examples repo.
+* **[Using Flakes with Devbox](guides/using_flakes.md):** Learn how to install packages from Nix Flakes.
 
 ### Use Devbox with your IDE
 
@@ -126,5 +117,5 @@ devbox global pull https://raw.githubusercontent.com/org/repo/branch/path/to/dev
 
 ### Get Involved
 
-* **[Join our Discord Community](https://discord.gg/jetpack-io):** Chat with the development team and our growing community of Devbox users.
-* **[Visit us on Github](https://github.com/jetpack-io/devbox):** File issues and provide feedback, or even open a PR to contribute to Devbox or our Docs.
+* **[Join our Discord Community](https://discord.gg/jetify):** Chat with the development team and our growing community of Devbox users.
+* **[Visit us on Github](https://github.com/jetify-com/devbox):** File issues and provide feedback, or even open a PR to contribute to Devbox or our Docs.

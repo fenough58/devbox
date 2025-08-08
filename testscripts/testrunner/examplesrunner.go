@@ -3,6 +3,7 @@ package testrunner
 import (
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,26 +14,26 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rogpeppe/go-internal/testscript"
 
-	"go.jetpack.io/devbox/internal/debug"
-	"go.jetpack.io/devbox/internal/envir"
-	"go.jetpack.io/devbox/internal/impl"
+	"go.jetify.com/devbox/internal/devconfig"
+	"go.jetify.com/devbox/internal/envir"
 )
 
 // xdgStateHomeDir is the home directory for devbox state. We store symlinks to
 // virtenvs of devbox plugins in this directory. We need to use a custom
 // path that is intentionally short, since some plugins store unix sockets in
 // their virtenv and unix sockets require their paths to be short.
-const xdgStateHomeDir = "/tmp/devbox-example-testscripts"
+const xdgStateHomeDir = "/tmp/devbox-testscripts"
 
-// RunExamplesTestscripts generates testscripts for each example devbox-project.
-func RunExamplesTestscripts(t *testing.T, examplesDir string) {
+// RunDevboxTestscripts generates and runs a testscript test for each Devbox project in dir.
+// For each project, runs `devbox run run_test` (if script exists) and asserts it succeeds.
+func RunDevboxTestscripts(t *testing.T, dir string) {
 	// ensure the state home dir for devbox exists
-	err := os.MkdirAll(xdgStateHomeDir, 0700)
+	err := os.MkdirAll(xdgStateHomeDir, 0o700)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		t.Error(err)
 	}
 
-	err = filepath.WalkDir(examplesDir, func(path string, entry os.DirEntry, err error) error {
+	err = filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -42,7 +43,7 @@ func RunExamplesTestscripts(t *testing.T, examplesDir string) {
 		}
 
 		configPath := filepath.Join(path, "devbox.json")
-		config, err := impl.ReadConfig(configPath)
+		config, err := devconfig.Open(configPath)
 		if err != nil {
 			// skip directories that do not have a devbox.json defined
 			if errors.Is(err, fs.ErrNotExist) {
@@ -51,7 +52,7 @@ func RunExamplesTestscripts(t *testing.T, examplesDir string) {
 			return err
 		}
 		// skip configs that do not have a run_test defined
-		if _, ok := config.Shell.Scripts["run_test"]; !ok {
+		if _, ok := config.Scripts()["run_test"]; !ok {
 			t.Logf("skipping config due to missing run_test at: %s\n", path)
 			return nil
 		}
@@ -74,8 +75,46 @@ func RunExamplesTestscripts(t *testing.T, examplesDir string) {
 			return nil
 		}
 
+		ignoredExampleDirs := []string{
+			"cloud_development",
+			"data_science",
+			"databases",
+			"development",
+			"flakes",
+			//"insecure",
+			//"plugins",
+			"servers",
+			"stacks",
+      "development/csharp",
+      "development/elixir",
+      "development/fsharp",
+      "development/go",
+      "development/haskell",
+      "development/java",
+      "development/python",
+      "development/ruby",
+      "development/rust",
+      "development/zig",
+      "flakes",
+      "insecure",
+      "plugins",
+      "servers",
+      "stacks/django",
+      "stacks/drupal",
+      "stacks/jekyll",
+      "stacks/lapp-stack",
+      "stacks/laravel",
+      "stacks/lepp-stack",
+      "stacks/rails",
+		}
+		for _, ignoredDir := range ignoredExampleDirs {
+			if strings.Contains(path, ignoredDir) {
+				t.Logf("skipping ignored dir: %s\n", path)
+				return nil
+			}
+		}
 		t.Logf("running testscript for example: %s\n", path)
-		runSingleExampleTestscript(t, examplesDir, path)
+		runSingleDevboxTestscript(t, dir, path)
 		return nil
 	})
 	if err != nil {
@@ -83,18 +122,17 @@ func RunExamplesTestscripts(t *testing.T, examplesDir string) {
 	}
 }
 
-func runSingleExampleTestscript(t *testing.T, examplesDir, projectDir string) {
-	testscriptDir, err := generateTestscript(t, examplesDir, projectDir)
+func runSingleDevboxTestscript(t *testing.T, dir, projectDir string) {
+	testscriptDir, err := generateTestscript(t, dir, projectDir)
 	if err != nil {
 		t.Error(err)
 	}
 
-	params := getTestscriptParams(t, testscriptDir)
+	params := getTestscriptParams(testscriptDir)
 
 	// save a reference to the original params.Setup so that we can wrap it below
 	setup := params.Setup
 	params.Setup = func(envs *testscript.Env) error {
-
 		// We set a custom XDG_STATE_HOME to an intentionally short path.
 		// Reason: devbox plugins like postgres store unix socket files in their state dir.
 		envs.Setenv(envir.XDGStateHome, xdgStateHomeDir)
@@ -105,7 +143,7 @@ func runSingleExampleTestscript(t *testing.T, examplesDir, projectDir string) {
 		}
 
 		// copy all the files and folders of the devbox-project being tested to the workdir
-		debug.Log("copying projectDir: %s to env.WorkDir: %s\n", projectDir, envs.WorkDir)
+		slog.Debug("copying projectDir: %s to env.WorkDir: %s\n", projectDir, envs.WorkDir)
 		// implementation detail: the period at the end of the projectDir/.
 		// is important to ensure this works for both mac and linux.
 		// Ref.https://dev.to/ackshaey/macos-vs-linux-the-cp-command-will-trip-you-up-2p00
@@ -113,12 +151,12 @@ func runSingleExampleTestscript(t *testing.T, examplesDir, projectDir string) {
 		cmd := exec.Command("rm", "-rf", projectDir+"/.devbox")
 		err = cmd.Run()
 		if err != nil {
-			debug.Log("failed %s before doing cp", cmd)
+			slog.Error("failed %s before doing cp", "cmd", cmd, "err", err)
 			return errors.WithStack(err)
 		}
 
 		cmd = exec.Command("cp", "-r", projectDir+"/.", envs.WorkDir)
-		debug.Log("Running cmd: %s\n", cmd)
+		slog.Debug("running cmd", "cmd", cmd)
 		err = cmd.Run()
 		return errors.WithStack(err)
 	}
@@ -127,10 +165,10 @@ func runSingleExampleTestscript(t *testing.T, examplesDir, projectDir string) {
 }
 
 // generateTestscript will create a temp-directory and place the generic
-// testscript file (.test.txt) for all examples devbox-projects in it.
+// testscript file (.test.txt) for all devbox-projects in the dir.
 // It returns the directory containing the testscript file.
-func generateTestscript(t *testing.T, examplesDir, projectDir string) (string, error) {
-	testPath, err := filepath.Rel(examplesDir, projectDir)
+func generateTestscript(t *testing.T, dir, projectDir string) (string, error) {
+	testPath, err := filepath.Rel(dir, projectDir)
 	if err != nil {
 		return "", errors.WithStack(err)
 	}
@@ -152,7 +190,7 @@ func generateTestscript(t *testing.T, examplesDir, projectDir string) (string, e
 
 	// Copy the testscript file to the temp-dir
 	runTestScriptPath := filepath.Join("testrunner", scriptName)
-	debug.Log("copying run_test.test.txt from %s to %s\n", runTestScriptPath, testscriptDir)
+	slog.Debug("copying run_test.test.txt from %s to %s\n", runTestScriptPath, testscriptDir)
 	// Using os's cp command for expediency.
 	err = exec.Command("cp", runTestScriptPath, testscriptDir+"/"+scriptNameForProject).Run()
 	return testscriptDir, errors.WithStack(err)

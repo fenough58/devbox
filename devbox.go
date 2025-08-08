@@ -1,66 +1,32 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
-// Use of this source code is governed by the license in the LICENSE file.
-
-// Package devbox creates isolated development environments.
+// Package devbox creates and configures Devbox development environments.
 package devbox
 
 import (
 	"context"
 	"io"
 
-	"go.jetpack.io/devbox/internal/impl"
-	"go.jetpack.io/devbox/internal/planner/plansdk"
-	"go.jetpack.io/devbox/internal/services"
+	"go.jetify.com/devbox/internal/devbox"
+	"go.jetify.com/devbox/internal/devbox/devopt"
 )
 
-// Devbox provides an isolated development environment.
-type Devbox interface {
-	// Add adds Nix packages to the config so that they're available in the devbox
-	// environment. It validates that the Nix packages exist, and install them.
-	// Adding duplicate packages is a no-op.
-	Add(ctx context.Context, pkgs ...string) error
-	AddGlobal(pkgs ...string) error
-	Config() *impl.Config
-	ProjectDir() string
-	// Generate creates the directory of Nix files and the Dockerfile that define
-	// the devbox environment.
-	Generate() error
-	GenerateDevcontainer(force bool) error
-	GenerateDockerfile(force bool) error
-	GenerateEnvrc(force bool, source string) error
-	Info(pkg string, markdown bool) error
-	ListScripts() []string
-	PrintEnv(ctx context.Context, includeHooks bool) (string, error)
-	PrintGlobalList() error
-	PullGlobal(path string) error
-	// Remove removes Nix packages from the config so that it no longer exists in
-	// the devbox environment.
-	Remove(ctx context.Context, pkgs ...string) error
-	RemoveGlobal(pkgs ...string) error
-	RestartServices(ctx context.Context, services ...string) error
-	RunScript(scriptName string, scriptArgs []string) error
-	Services() (services.Services, error)
-	// Shell generates the devbox environment and launches nix-shell as a child process.
-	Shell(ctx context.Context) error
-	// ShellPlan creates a plan of the actions that devbox will take to generate its
-	// shell environment.
-	ShellPlan() (*plansdk.ShellPlan, error)
-	StartProcessManager(ctx context.Context, requestedServices []string, background bool, processComposeFileOrDir string) error
-	StartServices(ctx context.Context, services ...string) error
-	StopServices(ctx context.Context, allProjects bool, services ...string) error
-	ListServices(ctx context.Context) error
+// Devbox is a Devbox development environment.
+type Devbox struct {
+	dx *devbox.Devbox
 }
 
-// Open opens a devbox by reading the config file in dir.
-func Open(dir string, writer io.Writer) (Devbox, error) {
-	return impl.Open(dir, writer)
+// Open loads a Devbox environment from a config file or directory.
+func Open(path string) (*Devbox, error) {
+	dx, err := devbox.Open(&devopt.Opts{
+		Dir:    path,
+		Stderr: io.Discard,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Devbox{dx: dx}, nil
 }
 
-// InitConfig creates a default devbox config file if one doesn't already exist.
-func InitConfig(dir string, writer io.Writer) (bool, error) {
-	return impl.InitConfig(dir, writer)
-}
-
-func GlobalDataPath() (string, error) {
-	return impl.GlobalDataPath()
+// Install downloads and installs missing packages.
+func (d *Devbox) Install(ctx context.Context) error {
+	return d.dx.Install(ctx)
 }

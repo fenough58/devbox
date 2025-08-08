@@ -1,8 +1,9 @@
 {
     "packages": [
-        "gradle",
-        "jdk",
-        "binutils"
+
+        "gradle@latest",
+        "jdk@19",
+        "binutils@latest"
     ],
     "shell": {
         "init_hook": null,

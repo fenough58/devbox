@@ -1,4 +1,4 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package boxcli
@@ -9,8 +9,10 @@ import (
 	"runtime"
 
 	"github.com/spf13/cobra"
-	"go.jetpack.io/devbox/internal/build"
-	"go.jetpack.io/devbox/internal/vercheck"
+
+	"go.jetify.com/devbox/internal/build"
+	"go.jetify.com/devbox/internal/envir"
+	"go.jetify.com/devbox/internal/vercheck"
 )
 
 type versionFlags struct {
@@ -31,6 +33,7 @@ func versionCmd() *cobra.Command {
 	command.Flags().BoolVarP(&flags.verbose, "verbose", "v", false, // value
 		"displays additional version information",
 	)
+
 	command.AddCommand(selfUpdateCmd())
 	return command
 }
@@ -50,16 +53,17 @@ func selfUpdateCmd() *cobra.Command {
 
 func versionCmdFunc(cmd *cobra.Command, _ []string, flags versionFlags) error {
 	w := cmd.OutOrStdout()
-	v := getVersionInfo()
+	info := getVersionInfo()
 	if flags.verbose {
-		fmt.Fprintf(w, "Version:     %v\n", v.Version)
-		fmt.Fprintf(w, "Platform:    %v\n", v.Platform)
-		fmt.Fprintf(w, "Commit:      %v\n", v.Commit)
-		fmt.Fprintf(w, "Commit Time: %v\n", v.CommitDate)
-		fmt.Fprintf(w, "Go Version:  %v\n", v.GoVersion)
-		fmt.Fprintf(w, "Launcher:    %v\n", v.LauncherVersion)
+		fmt.Fprintf(w, "Version:     %v\n", info.Version)
+		fmt.Fprintf(w, "Platform:    %v\n", info.Platform)
+		fmt.Fprintf(w, "Commit:      %v\n", info.Commit)
+		fmt.Fprintf(w, "Commit Time: %v\n", info.CommitDate)
+		fmt.Fprintf(w, "Go Version:  %v\n", info.GoVersion)
+		fmt.Fprintf(w, "Launcher:    %v\n", info.LauncherVersion)
+
 	} else {
-		fmt.Fprintf(w, "%v\n", v.Version)
+		fmt.Fprintf(w, "%v\n", info.Version)
 	}
 	return nil
 }
@@ -76,13 +80,12 @@ type versionInfo struct {
 
 func getVersionInfo() *versionInfo {
 	v := &versionInfo{
-		Version:    build.Version,
-		Platform:   fmt.Sprintf("%s_%s", runtime.GOOS, runtime.GOARCH),
-		Commit:     build.Commit,
-		CommitDate: build.CommitDate,
-		GoVersion:  runtime.Version(),
-		// Change to env.LauncherVersion. Not doing so to minimize merge conflicts.
-		LauncherVersion: os.Getenv("LAUNCHER_VERSION"),
+		Version:         build.Version,
+		Platform:        fmt.Sprintf("%s_%s", runtime.GOOS, runtime.GOARCH),
+		Commit:          build.Commit,
+		CommitDate:      build.CommitDate,
+		GoVersion:       runtime.Version(),
+		LauncherVersion: os.Getenv(envir.LauncherVersion),
 	}
 
 	return v

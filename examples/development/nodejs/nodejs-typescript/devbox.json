@@ -1,9 +1,14 @@
 {
     "packages": [
-        "nodejs-18_x",
-        "nodePackages.typescript"
+        "nodejs@18"
     ],
     "shell": {
-        "init_hook": null
+        "init_hook": [
+            "npm install",
+            "npm run build"
+        ],
+        "scripts": {
+            "run_test": "npm run start"
+        }
     }
 }

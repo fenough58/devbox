@@ -1,4 +1,4 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package boxcli
@@ -9,219 +9,115 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
-	"go.jetpack.io/devbox"
-	"go.jetpack.io/devbox/internal/boxcli/usererr"
-	"go.jetpack.io/devbox/internal/nix"
+	"go.jetify.com/devbox/internal/devbox"
+	"go.jetify.com/devbox/internal/devbox/devopt"
+	"go.jetify.com/devbox/internal/ux"
 )
 
 func globalCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:    "global",
-		Short:  "Manage global devbox packages",
-		Hidden: false,
+	globalCmd := &cobra.Command{}
+	persistentPreRunE := setGlobalConfigForDelegatedCommands(globalCmd)
+	*globalCmd = cobra.Command{
+		Use:   "global",
+		Short: "Manage global devbox packages",
+		// PersistentPreRunE is inherited only if children do not implement it
+		// (i.e. it's not chained). So this is fragile. Ideally we stop
+		// using PersistentPreRunE. For now a hack is to pass it down to commands
+		// that declare their own.
+		PersistentPreRunE:  persistentPreRunE,
+		PersistentPostRunE: ensureGlobalEnvEnabled,
 	}
 
-	cmd.AddCommand(globalAddCmd())
-	cmd.AddCommand(globalInstallCmd())
-	cmd.AddCommand(globalListCmd())
-	cmd.AddCommand(globalPullCmd())
-	cmd.AddCommand(globalRemoveCmd())
-	cmd.AddCommand(globalShellenvCmd())
+	addCommandAndHideConfigFlag(globalCmd, addCmd())
+	addCommandAndHideConfigFlag(globalCmd, installCmd())
+	addCommandAndHideConfigFlag(globalCmd, pathCmd())
+	addCommandAndHideConfigFlag(globalCmd, pullCmd())
+	addCommandAndHideConfigFlag(globalCmd, pushCmd())
+	addCommandAndHideConfigFlag(globalCmd, removeCmd())
+	addCommandAndHideConfigFlag(globalCmd, runCmd(runFlagDefaults{
+		omitNixEnv: true,
+	}))
+	addCommandAndHideConfigFlag(globalCmd, servicesCmd(persistentPreRunE))
+	addCommandAndHideConfigFlag(globalCmd, shellEnvCmd(shellenvFlagDefaults{
+		omitNixEnv: true,
+	}))
+	addCommandAndHideConfigFlag(globalCmd, updateCmd())
+	addCommandAndHideConfigFlag(globalCmd, listCmd())
 
-	return cmd
+	return globalCmd
 }
 
-func globalAddCmd() *cobra.Command {
-	command := &cobra.Command{
-		Use:     "add <pkg>...",
-		Short:   "Add a new global package",
-		PreRunE: ensureNixInstalled,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				fmt.Fprintf(
-					cmd.ErrOrStderr(),
-					"Usage: %s\n\n%s\n",
-					cmd.UseLine(),
-					toSearchForPackages,
-				)
-				return nil
-			}
-			err := addGlobalCmdFunc(cmd, args)
-			if errors.Is(err, nix.ErrPackageNotFound) {
-				return usererr.New("%s\n\n%s", err, toSearchForPackages)
-			}
-			return err
-		},
-	}
-
-	return command
+func addCommandAndHideConfigFlag(parent, child *cobra.Command) {
+	parent.AddCommand(child)
+	_ = child.Flags().MarkHidden("config")
 }
 
-func globalRemoveCmd() *cobra.Command {
-	command := &cobra.Command{
-		Use:     "rm <pkg>...",
-		Aliases: []string{"remove"},
-		Short:   "Remove a global package",
-		PreRunE: ensureNixInstalled,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				fmt.Fprintf(
-					cmd.ErrOrStderr(),
-					"Usage: %s\n\n%s\n",
-					cmd.UseLine(),
-					toSearchForPackages,
-				)
-				return nil
-			}
-			return removeGlobalCmdFunc(cmd, args)
-		},
-	}
-	return command
-}
+var globalConfigPath string
 
-func globalListCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:     "list",
-		Aliases: []string{"ls"},
-		Short:   "List global packages",
-		PreRunE: ensureNixInstalled,
-		RunE:    listGlobalCmdFunc,
-	}
-}
-
-func globalPullCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:     "pull <file> | <url>",
-		Short:   "Pull a global config from a file or URL",
-		Long:    "Pull a global config from a file or URL. URLs must be prefixed with 'http://' or 'https://'.",
-		PreRunE: ensureNixInstalled,
-		RunE:    pullGlobalCmdFunc,
-		Args:    cobra.ExactArgs(1),
-	}
-}
-
-func globalShellenvCmd() *cobra.Command {
-	flags := shellEnvCmdFlags{}
-	command := &cobra.Command{
-		Use:     "shellenv",
-		Short:   "Print shell commands that add global Devbox packages to your PATH",
-		PreRunE: ensureNixInstalled,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return shellenvGlobalCmdFunc(cmd, flags.runInitHook)
-		},
-	}
-	command.Flags().BoolVar(
-		&flags.runInitHook, "init-hook", false, "runs init hook after exporting shell environment")
-
-	return command
-}
-
-func globalInstallCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:     "install",
-		Short:   "Installs packages defined in global devbox.json",
-		PreRunE: ensureNixInstalled,
-		RunE:    installGlobalCmdFunc,
-	}
-}
-
-func addGlobalCmdFunc(cmd *cobra.Command, args []string) error {
-	path, err := ensureGlobalConfig(cmd)
-	if err != nil {
-		return errors.WithStack(err)
+func ensureGlobalConfig() (string, error) {
+	if globalConfigPath != "" {
+		return globalConfigPath, nil
 	}
 
-	box, err := devbox.Open(path, cmd.ErrOrStderr())
-	if err != nil {
-		return errors.WithStack(err)
-	}
-
-	return box.AddGlobal(args...)
-}
-
-func installGlobalCmdFunc(cmd *cobra.Command, args []string) error {
-	path, err := ensureGlobalConfig(cmd)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-
-	box, err := devbox.Open(path, cmd.ErrOrStderr())
-	if err != nil {
-		return errors.WithStack(err)
-	}
-	_, err = box.PrintEnv(cmd.Context(), false /* run init hooks */)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-	fmt.Fprintln(cmd.ErrOrStderr(), "Finished installing packages.")
-	return nil
-}
-
-func removeGlobalCmdFunc(cmd *cobra.Command, args []string) error {
-	path, err := ensureGlobalConfig(cmd)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-
-	box, err := devbox.Open(path, cmd.ErrOrStderr())
-	if err != nil {
-		return errors.WithStack(err)
-	}
-
-	return box.RemoveGlobal(args...)
-}
-
-func listGlobalCmdFunc(cmd *cobra.Command, args []string) error {
-	path, err := ensureGlobalConfig(cmd)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-
-	box, err := devbox.Open(path, cmd.OutOrStdout())
-	if err != nil {
-		return errors.WithStack(err)
-	}
-	return box.PrintGlobalList()
-}
-
-func pullGlobalCmdFunc(cmd *cobra.Command, args []string) error {
-	path, err := ensureGlobalConfig(cmd)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-
-	box, err := devbox.Open(path, cmd.ErrOrStderr())
-	if err != nil {
-		return errors.WithStack(err)
-	}
-	return box.PullGlobal(args[0])
-}
-
-func shellenvGlobalCmdFunc(cmd *cobra.Command, runInitHook bool) error {
-	path, err := ensureGlobalConfig(cmd)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-
-	box, err := devbox.Open(path, cmd.ErrOrStderr())
-	if err != nil {
-		return errors.WithStack(err)
-	}
-	output, err := box.PrintEnv(cmd.Context(), runInitHook)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-
-	fmt.Fprintln(cmd.OutOrStdout(), output)
-	fmt.Fprintln(cmd.OutOrStdout(), "hash -r")
-	return nil
-}
-
-func ensureGlobalConfig(cmd *cobra.Command) (string, error) {
-	path, err := devbox.GlobalDataPath()
+	globalConfigPath, err := devbox.GlobalDataPath()
 	if err != nil {
 		return "", err
 	}
-	_, err = devbox.InitConfig(path, cmd.ErrOrStderr())
-	return path, err
+	err = devbox.EnsureConfig(globalConfigPath)
+	if err != nil {
+		return "", err
+	}
+	return globalConfigPath, nil
+}
+
+func setGlobalConfigForDelegatedCommands(
+	globalCmd *cobra.Command,
+) func(cmd *cobra.Command, args []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		globalPath, err := ensureGlobalConfig()
+		if err != nil {
+			return err
+		}
+
+		for _, c := range globalCmd.Commands() {
+			if f := c.Flag("config"); f != nil && f.Value.Type() == "string" {
+				if err := f.Value.Set(globalPath); err != nil {
+					return errors.WithStack(err)
+				}
+			}
+		}
+		return nil
+	}
+}
+
+func ensureGlobalEnvEnabled(cmd *cobra.Command, args []string) error {
+	if cmd.Name() == "shellenv" {
+		return nil
+	}
+	path, err := ensureGlobalConfig()
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	box, err := devbox.Open(&devopt.Opts{
+		Dir:    path,
+		Stderr: cmd.ErrOrStderr(),
+	})
+	if err != nil {
+		return err
+	}
+	if !box.IsEnvEnabled() {
+		fmt.Fprintln(cmd.ErrOrStderr())
+		ux.Fwarningf(
+			cmd.ErrOrStderr(),
+			`devbox global is not activated.
+
+Add the following line to your shell's rcfile (e.g., ~/.bashrc or ~/.zshrc)
+and restart your shell to fix this:
+
+	eval "$(devbox global shellenv)"
+`,
+		)
+	}
+	return nil
 }

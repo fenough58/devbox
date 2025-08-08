@@ -1,11 +1,10 @@
 ---
 title: MariaDB
 ---
-To use a local MariaDB for development with Devbox and Nix, you will need to configure MariaDB to install and manage the configuration locally. This can be done using Environment variables to create the data directory, pidfile, and unix sock locally.
+MariaDB can be automatically configured for your dev environment by Devbox via the built-in MariaDB Plugin. This plugin will activate automatically when you install MariaDB using `devbox add mariadb`, or when you use a versioned Nix package like `devbox add mariadb_1010`
 
-[**Example Repo**](https://github.com/jetpack-io/devbox/tree/main/examples/databases/mariadb)
+[**Example Repo**](https://github.com/jetify-com/devbox/tree/main/examples/databases/mariadb)
 
-[![Open In Devbox.sh](https://jetpack.io/img/devbox/open-in-devbox.svg)](https://devbox.sh/github.com/jetpack-io/devbox?folder=examples/databases/mariadb)
 
 ## Adding MariaDB to your Shell
 
@@ -13,47 +12,74 @@ To use a local MariaDB for development with Devbox and Nix, you will need to con
 
 ```json
     "packages": [
-        "mariadb"
+        "mariadb@latest"
     ]
 ```
 
-## Environment Variables
+You can manually add the MariaDB Plugin to your `devbox.json` by adding it to your `include` list:
 
-This script should be sourced in the `init_hook` of our devbox.json. This sets environment variables needed to configure and start MariaDB, as well as setting the data directory to a local folder. 
-
-```bash
-# Environment variables for running MariaDB with local configuration
-export MYSQL_BASEDIR=$(which mariadb | sed -r "s/\/bin\/mariadb//g")
-export MYSQL_HOME=$PWD/conf/mysql # or another folder in your project directory
-# Store DB data in a local folder
-export MYSQL_DATADIR=$MYSQL_HOME/data
-# Keep the socket and pidfile in our conf folder, and out of the Nix Store
-export MYSQL_UNIX_PORT=$MYSQL_HOME/mysql.sock
-export MYSQL_PID_FILE=$MYSQL_HOME/mysql.pid
+```json
+    "include": [
+        "plugin:mariadb"
+    ]
 ```
 
-## Installing the Database
-We can check if the MySQL data directory exists, and if not install the database using the environment variables we configured:
+This will install the latest version of MariaDB. You can find other installable versions of MariaDB by running `devbox search mariadb`. You can also view the available versions on [Nixhub](https://www.nixhub.io/packages/mariadb)
+
+## MariaDB Plugin Support
+
+Devbox will automatically create the following configuration when you run `devbox add mariadb`. You can view the full configuration by running `devbox info mariadb`
+
+### Services
+
+* mariadb
+
+You can use `devbox services up|stop mariadb` to start or stop the MariaDB Server.
+
+### Environment Variables
 
 ```bash
-    if [ ! -d "$MYSQL_DATADIR" ]; then
-    # Install the Database
-       mysql_install_db --auth-root-authentication-method=normal \
-         --datadir=$MYSQL_DATADIR --basedir=$MYSQL_BASEDIR \
-         --pid-file=$MYSQL_PID_FILE
-    fi
+MYSQL_BASEDIR=.devbox/nix/profile/default
+MYSQL_HOME=./.devbox/virtenv/mariadb/run
+MYSQL_DATADIR=./.devbox/virtenv/mariadb/data
+MYSQL_UNIX_PORT=./.devbox/virtenv/mariadb/run/mysql.sock
+MYSQL_PID_FILE=./.devbox/mariadb/run/mysql.pid
 ```
 
-## Starting the Daemon
-Similarly, we can start the database using mysqld, passing the environment variables where needed
+### Files
 
-```bash
-    mysqld --datadir=$MYSQL_DATADIR --pid-file=$MYSQL_PID_FILE \
-	    --socket=$MYSQL_UNIX_PORT 2> $MYSQL_HOME/mysql.log & MYSQL_PID=$!
+The plugin will also create the following helper files in your project's `.devbox/virtenv` folder:
+
+* mariadb/flake.nix
+* mariadb/setup_db.sh
+* mariadb/process-compose.yaml
+
+These files are used to setup your database and service, and should not be modified
+
+### Notes
+
+* This plugin wraps mysqld and mysql_install_db to work in your local project. For more information, see the `flake.nix` created in your `.devbox/virtenv/mariadb` folder.
+* This plugin will create a new database for your project in MYSQL_DATADIR if one doesn't exist on shell init.
+* You can use `mysqld` to manually start the server, and `mysqladmin -u root shutdown` to manually stop it
+* `.sock` filepath can only be maximum 100 characters long. You can point to a different path by setting the `MYSQL_UNIX_PORT` env variable in your `devbox.json` as follows:
+
+```json
+"env": {
+    "MYSQL_UNIX_PORT": "/<some-other-path>/mysql.sock"
+}
 ```
 
-The daemon can be terminated using `mysqladmin`: 
+### Disabling the MariaDB Plugin
 
-```bash
-  mysqladmin -u root --socket=$MYSQL_UNIX_PORT shutdown
+You can disable the MariaDB plugin by running `devbox add mariadb --disable-plugin`, or by setting the `disable_plugin` field in your `devbox.json`:
+
+```json
+{
+    "packages": {
+        "mariadb": {
+            "version": "latest",
+            "disable_plugin": true
+        }
+    }
+}
 ```

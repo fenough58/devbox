@@ -1,4 +1,4 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package midcobra
@@ -9,9 +9,10 @@ import (
 	"os/exec"
 
 	"github.com/spf13/cobra"
-	"go.jetpack.io/devbox/internal/boxcli/usererr"
-	"go.jetpack.io/devbox/internal/debug"
-	"go.jetpack.io/devbox/internal/ux"
+
+	"go.jetify.com/devbox/internal/boxcli/usererr"
+	"go.jetify.com/devbox/internal/debug"
+	"go.jetify.com/devbox/internal/ux"
 )
 
 type Executable interface {
@@ -53,22 +54,18 @@ func (ex *midcobraExecutable) Execute(ctx context.Context, args []string) int {
 		m.preRun(ex.cmd, args)
 	}
 
+	// set args (needed in case caller transforms args in any way)
+	ex.cmd.SetArgs(args)
+
 	// Execute the cobra command:
 	err := ex.cmd.Execute()
-
-	var postRunErr error
-	var userExecErr *usererr.ExitError
-	// If the error is from a user exec call, exclude such error from postrun hooks.
-	if err != nil && !errors.As(err, &userExecErr) {
-		postRunErr = err
-	}
 
 	// Run the 'post' hooks. Note that unlike the default PostRun cobra functionality these
 	// run even if the command resulted in an error. This is useful when we still want to clean up
 	// before the program exists or we want to log something. The error, if any, gets passed
 	// to the post hook.
 	for i := len(ex.middlewares) - 1; i >= 0; i-- {
-		ex.middlewares[i].postRun(ex.cmd, args, postRunErr)
+		ex.middlewares[i].postRun(ex.cmd, args, err)
 	}
 
 	if err != nil {
@@ -81,9 +78,9 @@ func (ex *midcobraExecutable) Execute(ctx context.Context, args []string) int {
 		}
 		if errors.As(err, &exitErr) {
 			if !debug.IsEnabled() {
-				ux.Ferror(ex.cmd.ErrOrStderr(), "There was an internal error. "+
+				ux.Ferrorf(ex.cmd.ErrOrStderr(), "There was an internal error. "+
 					"Run with DEVBOX_DEBUG=1 for a detailed error message, and consider reporting it at "+
-					"https://github.com/jetpack-io/devbox/issues\n")
+					"https://github.com/jetify-com/devbox/issues\n")
 			}
 			return exitErr.ExitCode()
 		}

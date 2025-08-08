@@ -1,7 +1,7 @@
 {
   "packages": [
-    "python310",
-    "poetry"
+    "python@latest",
+    "poetry@latest"
   ],
   "shell": {
     "init_hook": [

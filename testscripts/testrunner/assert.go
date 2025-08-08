@@ -8,7 +8,9 @@ import (
 
 	"github.com/rogpeppe/go-internal/testscript"
 
-	"go.jetpack.io/devbox/internal/envir"
+	"go.jetify.com/devbox/internal/devconfig"
+	"go.jetify.com/devbox/internal/envir"
+	"go.jetify.com/devbox/internal/lock"
 )
 
 // Usage: env.path.len <number>
@@ -29,6 +31,53 @@ func assertPathLength(script *testscript.TestScript, neg bool, args []string) {
 	} else {
 		if actualN != expectedN {
 			script.Fatalf("path length is %d, expected %d", actualN, expectedN)
+		}
+	}
+}
+
+func assertDevboxJSONPackagesContains(script *testscript.TestScript, neg bool, args []string) {
+	if len(args) != 2 {
+		script.Fatalf("usage: devboxjson.packages.contains devbox.json value")
+	}
+
+	data := script.ReadFile(args[0])
+	list := devconfig.Config{}
+	err := json.Unmarshal([]byte(data), &list.Root)
+	script.Check(err)
+
+	expected := args[1]
+	for _, actual := range packagesVersionedNames(list) {
+		if actual == expected {
+			if neg {
+				script.Fatalf("value '%s' found in '%s'", expected, packagesVersionedNames(list))
+			}
+			return
+		}
+	}
+
+	if !neg {
+		script.Fatalf("value '%s' not found in '%s'", expected, packagesVersionedNames(list))
+	}
+}
+
+func assertDevboxLockPackagesContains(script *testscript.TestScript, neg bool, args []string) {
+	if len(args) != 2 {
+		script.Fatalf("usage: devboxlock.packages.contains devbox.lock value")
+	}
+
+	data := script.ReadFile(args[0])
+	lockfile := lock.File{}
+	err := json.Unmarshal([]byte(data), &lockfile)
+	script.Check(err)
+
+	expected := args[1]
+	if _, ok := lockfile.Packages[expected]; ok {
+		if neg {
+			script.Fatalf("value '%s' found in %s", expected, args[0])
+		}
+	} else {
+		if !neg {
+			script.Fatalf("value '%s' not found in '%s'", expected, args[0])
 		}
 	}
 }
@@ -86,7 +135,7 @@ func assertPathOrder(script *testscript.TestScript, neg bool, args []string) {
 	}
 }
 
-func containsInOrder(subpaths []string, expected []string) bool {
+func containsInOrder(subpaths, expected []string) bool {
 	if len(expected) == 0 {
 		return true // no parts passed in, assertion trivially holds.
 	}
@@ -144,4 +193,12 @@ func compare(one, two any) int {
 	}
 
 	return 0
+}
+
+func packagesVersionedNames(c devconfig.Config) []string {
+	result := make([]string, 0, len(c.Root.TopLevelPackages()))
+	for _, p := range c.Root.TopLevelPackages() {
+		result = append(result, p.VersionedName())
+	}
+	return result
 }
