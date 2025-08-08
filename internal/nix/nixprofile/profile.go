@@ -1,69 +1,95 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package nixprofile
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"strconv"
 	"strings"
 
-	"github.com/fatih/color"
 	"github.com/pkg/errors"
-	"go.jetpack.io/devbox/internal/boxcli/usererr"
-	"go.jetpack.io/devbox/internal/devpkg"
-	"go.jetpack.io/devbox/internal/lock"
-	"go.jetpack.io/devbox/internal/nix"
-	"go.jetpack.io/devbox/internal/redact"
+	"github.com/samber/lo"
+	"go.jetify.com/devbox/internal/debug"
+	"go.jetify.com/devbox/internal/devpkg"
+	"go.jetify.com/devbox/internal/lock"
+	"go.jetify.com/devbox/internal/nix"
+	"go.jetify.com/devbox/internal/redact"
 )
 
 // ProfileListItems returns a list of the installed packages.
 func ProfileListItems(
 	writer io.Writer,
 	profileDir string,
-) (map[string]*NixProfileListItem, error) {
-
+) ([]*NixProfileListItem, error) {
+	defer debug.FunctionTimer().End()
 	output, err := nix.ProfileList(writer, profileDir, true /*useJSON*/)
-	if err == nil {
-		type ProfileListElement struct {
-			Active      bool     `json:"active"`
-			AttrPath    string   `json:"attrPath"`
-			OriginalURL string   `json:"originalUrl"`
-			Priority    int      `json:"priority"`
-			StorePaths  []string `json:"storePaths"`
-			URL         string   `json:"url"`
-		}
-		type ProfileListOutput struct {
-			Elements []ProfileListElement `json:"elements"`
-			Version  int                  `json:"version"`
-		}
-
-		var structOutput ProfileListOutput
-		if err := json.Unmarshal([]byte(output), &structOutput); err != nil {
-			return nil, err
-		}
-
-		result := map[string]*NixProfileListItem{}
-		for index, element := range structOutput.Elements {
-			// We use the unlocked reference as the key, since that is the format
-			// used for the `nix profile list` output of older nix versions
-			// (pre 2.17), which our code is designed to support.
-			unlockedReference := element.OriginalURL + "#" + element.AttrPath
-			result[unlockedReference] = &NixProfileListItem{
-				index:             index,
-				unlockedReference: unlockedReference,
-				lockedReference:   element.URL + "#" + element.AttrPath,
-				nixStorePath:      element.StorePaths[0],
-			}
-		}
-		return result, nil
+	if err != nil {
+		// fallback to legacy profile list
+		// NOTE: maybe we should check the nix version first, instead of falling back on _any_ error.
+		return profileListLegacy(writer, profileDir)
 	}
 
-	output, err = nix.ProfileList(writer, profileDir, false /*useJSON*/)
+	type ProfileListElement struct {
+		Active      bool     `json:"active"`
+		AttrPath    string   `json:"attrPath"`
+		OriginalURL string   `json:"originalUrl"`
+		Priority    int      `json:"priority"`
+		StorePaths  []string `json:"storePaths"`
+		URL         string   `json:"url"`
+	}
+	type ProfileListOutput struct {
+		Elements map[string]ProfileListElement `json:"elements"`
+		Version  int                           `json:"version"`
+	}
+
+	// Modern nix profiles: nix >= 2.20
+	var structOutput ProfileListOutput
+	if err := json.Unmarshal([]byte(output), &structOutput); err == nil {
+		items := []*NixProfileListItem{}
+		for name, element := range structOutput.Elements {
+			items = append(items, &NixProfileListItem{
+				name:              name,
+				unlockedReference: lo.Ternary(element.OriginalURL != "", element.OriginalURL+"#"+element.AttrPath, ""),
+				lockedReference:   lo.Ternary(element.URL != "", element.URL+"#"+element.AttrPath, ""),
+				nixStorePaths:     element.StorePaths,
+			})
+		}
+		return items, nil
+	}
+	// Fall back to trying format for nix < version 2.20
+
+	// ProfileListOutputJSONLegacy is for parsing `nix profile list --json` in nix < version 2.20
+	// that relied on index instead of name for each package installed.
+	type ProfileListOutputJSONLegacy struct {
+		Elements []ProfileListElement `json:"elements"`
+		Version  int                  `json:"version"`
+	}
+	var structOutput2 ProfileListOutputJSONLegacy
+	if err := json.Unmarshal([]byte(output), &structOutput2); err != nil {
+		return nil, err
+	}
+	items := []*NixProfileListItem{}
+	for index, element := range structOutput2.Elements {
+		items = append(items, &NixProfileListItem{
+			index:             index,
+			unlockedReference: lo.Ternary(element.OriginalURL != "", element.OriginalURL+"#"+element.AttrPath, ""),
+			lockedReference:   lo.Ternary(element.URL != "", element.URL+"#"+element.AttrPath, ""),
+			nixStorePaths:     element.StorePaths,
+		})
+	}
+
+	return items, nil
+}
+
+// profileListLegacy lists the items in a nix profile before nix 2.17.0 introduced --json.
+func profileListLegacy(
+	writer io.Writer,
+	profileDir string,
+) ([]*NixProfileListItem, error) {
+	output, err := nix.ProfileList(writer, profileDir, false /*useJSON*/)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -77,99 +103,78 @@ func ProfileListItems(
 	// 0 github:NixOS/nixpkgs/52e3e80afff4b16ccb7c52e9f0f5220552f03d04#legacyPackages.x86_64-darwin.go_1_19 github:NixOS/nixpkgs/52e3e80afff4b16ccb7c52e9f0f5220552f03d04#legacyPackages.x86_64-darwin.go_1_19 /nix/store/w0lyimyyxxfl3gw40n46rpn1yjrl3q85-go-1.19.3
 	// 1 github:NixOS/nixpkgs/52e3e80afff4b16ccb7c52e9f0f5220552f03d04#legacyPackages.x86_64-darwin.vim github:NixOS/nixpkgs/52e3e80afff4b16ccb7c52e9f0f5220552f03d04#legacyPackages.x86_64-darwin.vim /nix/store/gapbqxx1d49077jk8ay38z11wgr12p23-vim-9.0.0609
 
-	items := map[string]*NixProfileListItem{}
+	items := []*NixProfileListItem{}
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		item, err := parseNixProfileListItem(line)
+		item, err := parseNixProfileListItemLegacy(line)
 		if err != nil {
 			return nil, err
 		}
 
-		items[item.unlockedReference] = item
+		items = append(items, item)
 	}
 	return items, nil
 }
 
-type ProfileListIndexArgs struct {
-	// For performance you can reuse the same list in multiple operations if you
+type ProfileListNameOrIndexArgs struct {
+	// For performance, you can reuse the same list in multiple operations if you
 	// are confident index has not changed.
-	List       map[string]*NixProfileListItem
+	Items      []*NixProfileListItem
 	Lockfile   *lock.File
 	Writer     io.Writer
-	Input      *devpkg.Package
+	Package    *devpkg.Package
 	ProfileDir string
 }
 
-func ProfileListIndex(args *ProfileListIndexArgs) (int, error) {
+// ProfileListNameOrIndex returns the name or index of args.Package in the nix profile specified by args.ProfileDir,
+// or nix.ErrPackageNotFound if it's not found. Callers can pass in args.Items to avoid having to call `nix-profile list` again.
+func ProfileListNameOrIndex(args *ProfileListNameOrIndexArgs) (string, error) {
 	var err error
-	list := args.List
-	if list == nil {
-		list, err = ProfileListItems(args.Writer, args.ProfileDir)
+	items := args.Items
+	if items == nil {
+		items, err = ProfileListItems(args.Writer, args.ProfileDir)
 		if err != nil {
-			return -1, err
+			return "", err
 		}
 	}
 
-	inCache, err := args.Input.IsInBinaryCache()
+	inCache, err := args.Package.IsInBinaryCache()
 	if err != nil {
-		return -1, err
+		return "", err
 	}
-	if inCache {
-		pathInStore, err := args.Input.Installable()
+
+	if !inCache && args.Package.IsDevboxPackage {
+		// This is an optimization for happy path when packages are added by flake reference. A resolved devbox
+		// package *which was added by flake reference* (not by store path) should match the unlockedReference
+		// of an existing profile item.
+		ref, err := args.Package.NormalizedDevboxPackageReference()
 		if err != nil {
-			return -1, err
+			return "", errors.Wrapf(err, "failed to get installable for %s", args.Package.String())
 		}
-		for _, item := range list {
-			if pathInStore == item.nixStorePath {
-				return item.index, nil
+
+		for _, item := range items {
+			if ref == item.unlockedReference {
+				return item.NameOrIndex(), nil
 			}
 		}
-	}
-	// else: fallback to checking if the Input matches an item's unlockedReference
-
-	// This is an optimization for happy path. A resolved devbox package
-	// should match the unlockedReference of an existing profile item.
-	ref, err := args.Input.NormalizedDevboxPackageReference()
-	if err != nil {
-		return -1, err
-	}
-	if item, found := list[ref]; found {
-		return item.index, nil
+		return "", errors.Wrap(nix.ErrPackageNotFound, args.Package.String())
 	}
 
-	for _, item := range list {
-		existing := item.ToPackage(args.Lockfile)
-
-		if args.Input.Equals(existing) {
-			return item.index, nil
+	for _, item := range items {
+		if item.Matches(args.Package, args.Lockfile) {
+			return item.NameOrIndex(), nil
 		}
 	}
-	return -1, errors.Wrap(nix.ErrPackageNotFound, args.Input.String())
+	return "", errors.Wrap(nix.ErrPackageNotFound, args.Package.String())
 }
 
-// NixProfileListItem is a go-struct of a line of printed output from `nix profile list`
-// docs: https://nixos.org/manual/nix/stable/command-ref/new-cli/nix3-profile-list.html
-type NixProfileListItem struct {
-	// An integer that can be used to unambiguously identify the package in
-	// invocations of nix profile remove and nix profile upgrade.
-	index int
-
-	// The original ("unlocked") flake reference and output attribute path used at installation time.
-	unlockedReference string
-
-	// The locked flake reference to which the unlocked flake reference was resolved.
-	lockedReference string
-
-	// The store path(s) of the package.
-	nixStorePath string
-}
-
-// parseNixProfileListItem reads each line of output (from `nix profile list`) and converts
+// parseNixProfileListItemLegacy reads each line of output (from `nix profile list`) and converts
 // into a golang struct. Refer to NixProfileListItem struct definition for explanation of each field.
-func parseNixProfileListItem(line string) (*NixProfileListItem, error) {
+// NOTE: this API is for legacy nix. Newer nix versions use --json output.
+func parseNixProfileListItemLegacy(line string) (*NixProfileListItem, error) {
 	scanner := bufio.NewScanner(strings.NewReader(line))
 	scanner.Split(bufio.ScanWords)
 
@@ -193,129 +198,14 @@ func parseNixProfileListItem(line string) (*NixProfileListItem, error) {
 	lockedReference := scanner.Text()
 
 	if !scanner.Scan() {
-		return nil, redact.Errorf("error parsing \"nix profile list\" output: line is missing nixStorePath: %s", line)
+		return nil, redact.Errorf("error parsing \"nix profile list\" output: line is missing nixStorePaths: %s", line)
 	}
-	nixStorePath := scanner.Text()
+	nixStorePaths := strings.Fields(scanner.Text())
 
 	return &NixProfileListItem{
 		index:             index,
 		unlockedReference: unlockedReference,
 		lockedReference:   lockedReference,
-		nixStorePath:      nixStorePath,
+		nixStorePaths:     nixStorePaths,
 	}, nil
-}
-
-// AttributePath parses the package attribute from the NixProfileListItem.lockedReference
-//
-// For example:
-// if NixProfileListItem.lockedReference = github:NixOS/nixpkgs/52e3e80afff4b16ccb7c52e9f0f5220552f03d04#legacyPackages.x86_64-darwin.go_1_19
-// then AttributePath = legacyPackages.x86_64-darwin.go_1_19
-func (item *NixProfileListItem) AttributePath() (string, error) {
-	// lockedReference example:
-	// github:NixOS/nixpkgs/52e3e80afff4b16ccb7c52e9f0f5220552f03d04#legacyPackages.x86_64-darwin.go_1_19
-
-	// AttributePath example:
-	// legacyPackages.x86_64.go_1_19
-	_ /*nixpkgs*/, attrPath, found := strings.Cut(item.lockedReference, "#")
-	if !found {
-		return "", redact.Errorf(
-			"expected to find # in lockedReference: %s from NixProfileListItem: %s",
-			redact.Safe(item.lockedReference),
-			item,
-		)
-	}
-	return attrPath, nil
-}
-
-// ToPackage constructs a nix.Package using the unlocked reference
-func (item *NixProfileListItem) ToPackage(locker lock.Locker) *devpkg.Package {
-	return devpkg.PackageFromString(item.unlockedReference, locker)
-}
-
-// String serializes the NixProfileListItem back into the format printed by `nix profile list`
-func (item *NixProfileListItem) String() string {
-	return fmt.Sprintf("%d %s %s %s",
-		item.index,
-		item.unlockedReference,
-		item.lockedReference,
-		item.nixStorePath,
-	)
-}
-
-type ProfileInstallArgs struct {
-	CustomStepMessage string
-	Lockfile          *lock.File
-	Package           string
-	ProfilePath       string
-	Writer            io.Writer
-}
-
-// ProfileInstall calls nix profile install with default profile
-func ProfileInstall(ctx context.Context, args *ProfileInstallArgs) error {
-	input := devpkg.PackageFromString(args.Package, args.Lockfile)
-
-	// Fill in the narinfo cache for the input package. It's okay to call this for a single package
-	// because installing is a slow operation anyway.
-	if err := devpkg.FillNarInfoCache(ctx, input); err != nil {
-		return err
-	}
-
-	inCache, err := input.IsInBinaryCache()
-	if err != nil {
-		return err
-	}
-
-	if !inCache && nix.IsGithubNixpkgsURL(input.URLForFlakeInput()) {
-		if err := nix.EnsureNixpkgsPrefetched(args.Writer, input.HashFromNixPkgsURL()); err != nil {
-			return err
-		}
-		if exists, err := input.ValidateInstallsOnSystem(); err != nil {
-			return err
-		} else if !exists {
-			platform := " " + nix.System()
-			return usererr.New(
-				"package %s cannot be installed on your platform%s. "+
-					"Run `devbox add %[1]s --exclude-platform%[2]s` and re-try.",
-				input.Raw,
-				platform,
-			)
-		}
-	}
-	stepMsg := args.Package
-	if args.CustomStepMessage != "" {
-		stepMsg = args.CustomStepMessage
-		// Only print this first one if we have a custom message. Otherwise it feels
-		// repetitive.
-		fmt.Fprintf(args.Writer, "%s\n", stepMsg)
-	}
-
-	installable, err := input.Installable()
-	if err != nil {
-		return err
-	}
-
-	err = nix.ProfileInstall(args.Writer, args.ProfilePath, installable)
-	if err != nil {
-		fmt.Fprintf(args.Writer, "%s: ", stepMsg)
-		color.New(color.FgRed).Fprintf(args.Writer, "Fail\n")
-		return redact.Errorf("error running \"nix profile install\": %w", err)
-	}
-
-	fmt.Fprintf(args.Writer, "%s: ", stepMsg)
-	color.New(color.FgGreen).Fprintf(args.Writer, "Success\n")
-	return nil
-}
-
-// ProfileRemoveItems removes the items from the profile, in a single call, using their indexes.
-// It is up to the caller to ensure that the underlying profile has not changed since the items
-// were queried.
-func ProfileRemoveItems(profilePath string, items []*NixProfileListItem) error {
-	if items == nil {
-		return nil
-	}
-	indexes := []string{}
-	for _, item := range items {
-		indexes = append(indexes, strconv.Itoa(item.index))
-	}
-	return nix.ProfileRemove(profilePath, indexes)
 }
