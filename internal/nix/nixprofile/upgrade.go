@@ -1,4 +1,4 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package nixprofile
@@ -6,14 +6,14 @@ package nixprofile
 import (
 	"os"
 
-	"go.jetpack.io/devbox/internal/devpkg"
-	"go.jetpack.io/devbox/internal/lock"
-	"go.jetpack.io/devbox/internal/nix"
+	"go.jetify.com/devbox/internal/devpkg"
+	"go.jetify.com/devbox/internal/lock"
+	"go.jetify.com/devbox/internal/nix"
 )
 
 func ProfileUpgrade(ProfileDir string, pkg *devpkg.Package, lock *lock.File) error {
-	idx, err := ProfileListIndex(
-		&ProfileListIndexArgs{
+	nameOrIndex, err := ProfileListNameOrIndex(
+		&ProfileListNameOrIndexArgs{
 			Lockfile:   lock,
 			Writer:     os.Stderr,
 			Package:    pkg,
@@ -24,5 +24,5 @@ func ProfileUpgrade(ProfileDir string, pkg *devpkg.Package, lock *lock.File) err
 		return err
 	}
 
-	return nix.ProfileUpgrade(ProfileDir, idx)
+	return nix.ProfileUpgrade(ProfileDir, nameOrIndex)
 }
