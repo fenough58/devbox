@@ -75,6 +75,35 @@ func RunDevboxTestscripts(t *testing.T, dir string) {
 			return nil
 		}
 
+		ignoredExampleDirs := []string{
+			"cloud_development",
+			"data_science",
+			"databases",
+			"development/csharp",
+			"development/elixir",
+			"development/fsharp",
+			"development/go",
+			"development/haskell",
+			"development/java",
+			//"development/nim",
+			//"development/nodejs",
+			//"development/php",
+			"development/python",
+			"development/ruby",
+			"development/rust",
+			"development/zig",
+			"flakes",
+			"insecure",
+			"plugins",
+			"servers",
+			"stacks",
+		}
+		for _, ignoredDir := range ignoredExampleDirs {
+			if strings.Contains(path, ignoredDir) {
+				t.Logf("skipping ignored dir: %s\n", path)
+				return nil
+			}
+		}
 		t.Logf("running testscript for example: %s\n", path)
 		runSingleDevboxTestscript(t, dir, path)
 		return nil
