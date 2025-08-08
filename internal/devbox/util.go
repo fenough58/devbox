@@ -5,6 +5,7 @@ package devbox
 
 import (
 	"context"
+
 	"io"
 	"io/fs"
 	"os"
@@ -60,10 +61,20 @@ func ensureDevboxUtilityConfig() (string, error) {
 		return "", err
 	}
 
-	// Avoids unnecessarily initializing the config again by caching the path
-	utilProjectConfigPath = path
+	for _, installable := range installables {
+		for _, profileItem := range profile {
+			if profileItem.MatchesUnlockedReference(installable) {
+				err = nix.ProfileRemove(utilityProfilePath, profileItem.NameOrIndex())
+				if err != nil {
+					return err
+				}
+				// We are done with this installable. Now, remove the next installable:
+				break
+			}
+		}
+	}
+	return nil
 
-	return path, nil
 }
 
 func utilityLookPath(binName string) (string, error) {
