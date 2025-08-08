@@ -1,10 +1,11 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package nixprofile
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 )
 
@@ -14,7 +15,10 @@ type expectedTestData struct {
 	packageName string
 }
 
-func TestNixProfileListItem(t *testing.T) {
+// TestNixProfileListItemLegacy tests the parsing of legacy nix profile list items.
+// It only applies to much older nix versions. Newer nix versions rely on the --json output
+// instead parsing the legacy output.
+func TestNixProfileListItemLegacy(t *testing.T) {
 	testCases := map[string]struct {
 		line     string
 		expected expectedTestData
@@ -32,7 +36,7 @@ func TestNixProfileListItem(t *testing.T) {
 					index:             0,
 					unlockedReference: "flake:NixOS/nixpkgs/52e3e80afff4b16ccb7c52e9f0f5220552f03d04#legacyPackages.x86_64-darwin.go_1_19",
 					lockedReference:   "github:NixOS/nixpkgs/52e3e80afff4b16ccb7c52e9f0f5220552f03d04#legacyPackages.x86_64-darwin.go_1_19",
-					nixStorePath:      "/nix/store/w0lyimyyxxfl3gw40n46rpn1yjrl3q85-go-1.19.3",
+					nixStorePaths:     []string{"/nix/store/w0lyimyyxxfl3gw40n46rpn1yjrl3q85-go-1.19.3"},
 				},
 				attrPath:    "legacyPackages.x86_64-darwin.go_1_19",
 				packageName: "go_1_19",
@@ -48,10 +52,10 @@ func TestNixProfileListItem(t *testing.T) {
 			),
 			expected: expectedTestData{
 				item: &NixProfileListItem{
-					2,
-					"github:NixOS/nixpkgs/52e3e80afff4b16ccb7c52e9f0f5220552f03d04#legacyPackages.x86_64-darwin.python39Packages.numpy",
-					"github:NixOS/nixpkgs/52e3e80afff4b16ccb7c52e9f0f5220552f03d04#legacyPackages.x86_64-darwin.python39Packages.numpy",
-					"/nix/store/qly36iy1p4q1h5p4rcbvsn3ll0zsd9pd-python3.9-numpy-1.23.3",
+					index:             2,
+					unlockedReference: "github:NixOS/nixpkgs/52e3e80afff4b16ccb7c52e9f0f5220552f03d04#legacyPackages.x86_64-darwin.python39Packages.numpy",
+					lockedReference:   "github:NixOS/nixpkgs/52e3e80afff4b16ccb7c52e9f0f5220552f03d04#legacyPackages.x86_64-darwin.python39Packages.numpy",
+					nixStorePaths:     []string{"/nix/store/qly36iy1p4q1h5p4rcbvsn3ll0zsd9pd-python3.9-numpy-1.23.3"},
 				},
 				attrPath:    "legacyPackages.x86_64-darwin.python39Packages.numpy",
 				packageName: "python39Packages.numpy",
@@ -67,7 +71,7 @@ func TestNixProfileListItem(t *testing.T) {
 }
 
 func testItem(t *testing.T, line string, expected expectedTestData) {
-	item, err := parseNixProfileListItem(line)
+	item, err := parseNixProfileListItemLegacy(line)
 	if err != nil {
 		t.Fatalf("unexpected error %v", err)
 	}
@@ -75,7 +79,7 @@ func testItem(t *testing.T, line string, expected expectedTestData) {
 		t.Fatalf("expected NixProfileListItem to be non-nil")
 	}
 
-	if *item != *expected.item {
+	if !reflect.DeepEqual(item, expected.item) {
 		t.Fatalf("expected parsed NixProfileListItem to be %s but got %s",
 			expected.item,
 			item,

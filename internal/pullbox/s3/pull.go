@@ -1,4 +1,4 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package s3
@@ -13,16 +13,19 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/pkg/errors"
-	"go.jetpack.io/devbox/internal/auth"
-	"go.jetpack.io/devbox/internal/pullbox/tar"
-	"go.jetpack.io/devbox/internal/ux"
+	"go.jetify.com/devbox/internal/devbox/devopt"
+	"go.jetify.com/devbox/internal/pullbox/tar"
+	"go.jetify.com/devbox/internal/ux"
 )
 
 var ErrProfileNotFound = errors.New("profile not found")
 
-func PullToTmp(ctx context.Context, user *auth.User, profile string) (string, error) {
-	config, err := assumeRole(ctx, user)
-
+func PullToTmp(
+	ctx context.Context,
+	creds *devopt.Credentials,
+	profile string,
+) (string, error) {
+	config, err := assumeRole(ctx, creds)
 	if err != nil {
 		return "", err
 	}
@@ -31,10 +34,10 @@ func PullToTmp(ctx context.Context, user *auth.User, profile string) (string, er
 	s3Client := manager.NewDownloader(s3.NewFromConfig(*config))
 	buf := manager.WriteAtBuffer{}
 
-	ux.Finfo(
+	ux.Finfof(
 		os.Stderr,
-		"Logged in as %s, pulling from jetpack cloud (profile: %s)\n",
-		user.Email(),
+		"Logged in as %s, pulling from jetify cloud (profile: %s)\n",
+		creds.Email,
 		profile,
 	)
 
@@ -46,7 +49,7 @@ func PullToTmp(ctx context.Context, user *auth.User, profile string) (string, er
 			Key: aws.String(
 				fmt.Sprintf(
 					"profiles/%s/%s.tar.gz",
-					user.ID(),
+					creds.Sub,
 					profile,
 				),
 			),
@@ -63,7 +66,7 @@ func PullToTmp(ctx context.Context, user *auth.User, profile string) (string, er
 		return "", err
 	}
 
-	ux.Fsuccess(
+	ux.Fsuccessf(
 		os.Stderr,
 		"Profile successfully pulled (profile: %s)\n",
 		profile,
