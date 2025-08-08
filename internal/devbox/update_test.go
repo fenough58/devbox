@@ -4,10 +4,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.jetpack.io/devbox/internal/boxcli/featureflag"
-	"go.jetpack.io/devbox/internal/devpkg"
-	"go.jetpack.io/devbox/internal/lock"
-	"go.jetpack.io/devbox/internal/nix"
+	"go.jetify.com/devbox/internal/devpkg"
+	"go.jetify.com/devbox/internal/lock"
+	"go.jetify.com/devbox/internal/nix"
 )
 
 func TestUpdateNewPackageIsAdded(t *testing.T) {
@@ -29,7 +28,6 @@ func TestUpdateNewPackageIsAdded(t *testing.T) {
 }
 
 func TestUpdateNewCurrentSysInfoIsAdded(t *testing.T) {
-	featureflag.RemoveNixpkgs.EnableForTest(t)
 	devbox := devboxForTesting(t)
 
 	raw := "hello@1.2.3"
@@ -39,7 +37,13 @@ func TestUpdateNewCurrentSysInfoIsAdded(t *testing.T) {
 		Resolved: "resolved-flake-reference",
 		Systems: map[string]*lock.SystemInfo{
 			sys: {
-				StorePath: "store_path1",
+				Outputs: []lock.Output{
+					{
+						Name:    "out",
+						Default: true,
+						Path:    "store_path1",
+					},
+				},
 			},
 		},
 	}
@@ -57,11 +61,10 @@ func TestUpdateNewCurrentSysInfoIsAdded(t *testing.T) {
 
 	require.Contains(t, lockfile.Packages, raw)
 	require.Contains(t, lockfile.Packages[raw].Systems, sys)
-	require.Equal(t, "store_path1", lockfile.Packages[raw].Systems[sys].StorePath)
+	require.Equal(t, "store_path1", lockfile.Packages[raw].Systems[sys].Outputs[0].Path)
 }
 
 func TestUpdateNewSysInfoIsAdded(t *testing.T) {
-	featureflag.RemoveNixpkgs.EnableForTest(t)
 	devbox := devboxForTesting(t)
 
 	raw := "hello@1.2.3"
@@ -72,10 +75,22 @@ func TestUpdateNewSysInfoIsAdded(t *testing.T) {
 		Resolved: "resolved-flake-reference",
 		Systems: map[string]*lock.SystemInfo{
 			sys1: {
-				StorePath: "store_path1",
+				Outputs: []lock.Output{
+					{
+						Name:    "out",
+						Default: true,
+						Path:    "store_path1",
+					},
+				},
 			},
 			sys2: {
-				StorePath: "store_path2",
+				Outputs: []lock.Output{
+					{
+						Name:    "out",
+						Default: true,
+						Path:    "store_path2",
+					},
+				},
 			},
 		},
 	}
@@ -85,7 +100,13 @@ func TestUpdateNewSysInfoIsAdded(t *testing.T) {
 				Resolved: "resolved-flake-reference",
 				Systems: map[string]*lock.SystemInfo{
 					sys1: {
-						StorePath: "store_path1",
+						Outputs: []lock.Output{
+							{
+								Name:    "out",
+								Default: true,
+								Path:    "store_path1",
+							},
+						},
 					},
 					// Missing sys2
 				},
@@ -99,11 +120,10 @@ func TestUpdateNewSysInfoIsAdded(t *testing.T) {
 	require.Contains(t, lockfile.Packages, raw)
 	require.Contains(t, lockfile.Packages[raw].Systems, sys1)
 	require.Contains(t, lockfile.Packages[raw].Systems, sys2)
-	require.Equal(t, "store_path2", lockfile.Packages[raw].Systems[sys2].StorePath)
+	require.Equal(t, "store_path2", lockfile.Packages[raw].Systems[sys2].Outputs[0].Path)
 }
 
 func TestUpdateOtherSysInfoIsReplaced(t *testing.T) {
-	featureflag.RemoveNixpkgs.EnableForTest(t)
 	devbox := devboxForTesting(t)
 
 	raw := "hello@1.2.3"
@@ -114,10 +134,22 @@ func TestUpdateOtherSysInfoIsReplaced(t *testing.T) {
 		Resolved: "resolved-flake-reference",
 		Systems: map[string]*lock.SystemInfo{
 			sys1: {
-				StorePath: "store_path1",
+				Outputs: []lock.Output{
+					{
+						Name:    "out",
+						Default: true,
+						Path:    "store_path1",
+					},
+				},
 			},
 			sys2: {
-				StorePath: "store_path2",
+				Outputs: []lock.Output{
+					{
+						Name:    "out",
+						Default: true,
+						Path:    "store_path2",
+					},
+				},
 			},
 		},
 	}
@@ -127,10 +159,22 @@ func TestUpdateOtherSysInfoIsReplaced(t *testing.T) {
 				Resolved: "resolved-flake-reference",
 				Systems: map[string]*lock.SystemInfo{
 					sys1: {
-						StorePath: "store_path1",
+						Outputs: []lock.Output{
+							{
+								Name:    "out",
+								Default: true,
+								Path:    "store_path1",
+							},
+						},
 					},
 					sys2: {
-						StorePath: "mismatching_store_path",
+						Outputs: []lock.Output{
+							{
+								Name:    "out",
+								Default: true,
+								Path:    "mismatching_store_path",
+							},
+						},
 					},
 				},
 			},
@@ -143,11 +187,11 @@ func TestUpdateOtherSysInfoIsReplaced(t *testing.T) {
 	require.Contains(t, lockfile.Packages, raw)
 	require.Contains(t, lockfile.Packages[raw].Systems, sys1)
 	require.Contains(t, lockfile.Packages[raw].Systems, sys2)
-	require.Equal(t, "store_path1", lockfile.Packages[raw].Systems[sys1].StorePath)
-	require.Equal(t, "store_path2", lockfile.Packages[raw].Systems[sys2].StorePath)
+	require.Equal(t, "store_path1", lockfile.Packages[raw].Systems[sys1].Outputs[0].Path)
+	require.Equal(t, "store_path2", lockfile.Packages[raw].Systems[sys2].Outputs[0].Path)
 }
 
-func currentSystem(_t *testing.T) string {
+func currentSystem(*testing.T) string {
 	sys := nix.System() // NOTE: we could mock this too, if it helps.
 	return sys
 }

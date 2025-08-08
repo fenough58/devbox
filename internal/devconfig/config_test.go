@@ -1,620 +1,429 @@
-//nolint:varnamelen
 package devconfig
 
 import (
-	"encoding/json"
-	"io"
+	"io/fs"
+	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/pkg/errors"
 	"github.com/tailscale/hujson"
-	"golang.org/x/tools/txtar"
+	"go.jetify.com/devbox/internal/devconfig/configfile"
 )
 
-/*
-The tests in this file use txtar to define test input and expected output.
-This makes the JSON a lot easier to read vs. defining it in variables or structs
-with weird indentation.
-
-Tests begin by defining their JSON with:
-
-  in, want := parseConfigTxtarTest(t, `an optional comment that will be logged with t.Log
-  -- in --
-  { }
-  -- want --
-  { "packages": { "go": "latest" } }`)
-*/
-
-func parseConfigTxtarTest(t *testing.T, test string) (in *Config, want []byte) {
-	t.Helper()
-
-	ar := txtar.Parse([]byte(test))
-	if comment := strings.TrimSpace(string(ar.Comment)); comment != "" {
-		t.Log(comment)
-	}
-	for _, f := range ar.Files {
-		switch f.Name {
-		case "in":
-			var err error
-			in, err = loadBytes(f.Data)
-			if err != nil {
-				t.Fatalf("input devbox.json is invalid: %v\n%s", err, f.Data)
-			}
-
-		case "want":
-			want = f.Data
+func TestOpen(t *testing.T) {
+	t.Run("Dir", func(t *testing.T) {
+		root, _, _ := mkNestedDirs(t)
+		if _, err := Init(root); err != nil {
+			t.Fatalf("Init(%q) error: %v", root, err)
 		}
-	}
-	return in, want
-}
 
-func optBytesToStrings() cmp.Option {
-	return cmp.Transformer("bytesToStrings", func(b []byte) string {
-		return string(b)
+		cfg, err := Open(root)
+		if err != nil {
+			t.Fatalf("Open(%q) error: %v", root, err)
+		}
+		gotDir := filepath.Dir(cfg.Root.AbsRootPath)
+		if gotDir != root {
+			t.Errorf("filepath.Dir(cfg.Root.AbsRootPath) = %q, want %q", gotDir, root)
+		}
+	})
+	t.Run("File", func(t *testing.T) {
+		root, _, _ := mkNestedDirs(t)
+		if _, err := Init(root); err != nil {
+			t.Fatalf("Init(%q) error: %v", root, err)
+		}
+		path := filepath.Join(root, "devbox.json")
+
+		cfg, err := Open(path)
+		if err != nil {
+			t.Fatalf("Open(%q) error: %v", path, err)
+		}
+		gotDir := filepath.Dir(cfg.Root.AbsRootPath)
+		if gotDir != root {
+			t.Errorf("filepath.Dir(cfg.Root.AbsRootPath) = %q, want %q", gotDir, root)
+		}
 	})
 }
 
-func optParseHujson() cmp.Option {
-	f := func(b []byte) map[string]any {
-		gotMin, err := hujson.Minimize(b)
+func TestOpenError(t *testing.T) {
+	t.Run("NotExist", func(t *testing.T) {
+		root, _, _ := mkNestedDirs(t)
+		if _, err := Init(root); err != nil {
+			t.Fatalf("Init(%q) error: %v", root, err)
+		}
+
+		path := filepath.Join(root, "notafile.json")
+		cfg, err := Open(path)
+		if err == nil {
+			t.Fatalf("Open(%q) = %q, want error", root, cfg.Root.AbsRootPath)
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Error("errors.Is(err, fs.ErrNotExist) = false, want true")
+		}
+		if errors.Is(err, ErrNotFound) {
+			t.Error("errors.Is(err, ErrNotFound) = true, want false")
+		}
+	})
+	t.Run("NotFound", func(t *testing.T) {
+		root, _, _ := mkNestedDirs(t)
+
+		cfg, err := Open(root)
+		if err == nil {
+			t.Fatalf("Open(%q) = %q, want error", root, cfg.Root.AbsRootPath)
+		}
+		if !errors.Is(err, ErrNotFound) {
+			t.Error("errors.Is(err, ErrNotFound) = false, want true")
+		}
+	})
+	t.Run("ParentNotFound", func(t *testing.T) {
+		root, child, _ := mkNestedDirs(t)
+		if _, err := Init(root); err != nil {
+			t.Fatalf("Init(%q) error: %v", root, err)
+		}
+
+		cfg, err := Open(child)
+		if err == nil {
+			t.Fatalf("Open(%q) = %q, want error", root, cfg.Root.AbsRootPath)
+		}
+		if !errors.Is(err, ErrNotFound) {
+			t.Error("errors.Is(err, ErrNotFound) = false, want true")
+		}
+	})
+}
+
+func TestFind(t *testing.T) {
+	t.Run("StartInSameDir", func(t *testing.T) {
+		root, child, _ := mkNestedDirs(t)
+		if _, err := Init(root); err != nil {
+			t.Fatalf("Init(%q) error: %v", root, err)
+		}
+		if _, err := Init(child); err != nil {
+			t.Fatalf("Init(%q) error: %v", child, err)
+		}
+
+		cfg, err := Find(child)
 		if err != nil {
-			return nil
+			t.Fatalf("Find(%q) error: %v", child, err)
 		}
-		var m map[string]any
-		if err := json.Unmarshal(gotMin, &m); err != nil {
-			return nil
+		gotDir := filepath.Dir(cfg.Root.AbsRootPath)
+		if gotDir != child {
+			t.Errorf("filepath.Dir(cfg.Root.AbsRootPath) = %q, want %q", gotDir, child)
 		}
-		return m
-	}
-	return cmp.Transformer("parseHujson", f)
+	})
+	t.Run("StartInChildDir", func(t *testing.T) {
+		root, child, _ := mkNestedDirs(t)
+		if _, err := Init(root); err != nil {
+			t.Fatalf("Init(%q) error: %v", root, err)
+		}
+
+		cfg, err := Find(child)
+		if err != nil {
+			t.Fatalf("Find(%q) error: %v", child, err)
+		}
+		gotDir := filepath.Dir(cfg.Root.AbsRootPath)
+		if gotDir != root {
+			t.Errorf("filepath.Dir(cfg.Root.AbsRootPath) = %q, want %q", gotDir, root)
+		}
+	})
+	t.Run("StartInNestedChildDir", func(t *testing.T) {
+		root, child, nested := mkNestedDirs(t)
+		if _, err := Init(root); err != nil {
+			t.Fatalf("Init(%q) error: %v", root, err)
+		}
+		if _, err := Init(child); err != nil {
+			t.Fatalf("Init(%q) error: %v", child, err)
+		}
+
+		cfg, err := Find(nested)
+		if err != nil {
+			t.Fatalf("Find(%q) error: %v", nested, err)
+		}
+		gotDir := filepath.Dir(cfg.Root.AbsRootPath)
+		if gotDir != child {
+			t.Errorf("filepath.Dir(cfg.Root.AbsRootPath) = %q, want %q", gotDir, child)
+		}
+	})
+	t.Run("IgnoreDirsWithMatchingName", func(t *testing.T) {
+		root, child, _ := mkNestedDirs(t)
+		if _, err := Init(root); err != nil {
+			t.Fatalf("Init(%q) error: %v", root, err)
+		}
+
+		trickyDir := filepath.Join(child, "devbox.json")
+		perm := fs.FileMode(0o777)
+		if err := os.Mkdir(trickyDir, perm); err != nil {
+			t.Fatalf("Mkdir(%q, %O) error: %v", trickyDir, perm, err)
+		}
+
+		cfg, err := Find(child)
+		if errors.Is(err, errIsDirectory) {
+			t.Fatalf("Find(%q) did not ignore a directory named devbox.json: %v", child, err)
+		}
+		if err != nil {
+			t.Fatalf("Find(%q) error: %v", child, err)
+		}
+		gotDir := filepath.Dir(cfg.Root.AbsRootPath)
+		if gotDir != root {
+			t.Errorf("filepath.Dir(cfg.Root.AbsRootPath) = %q, want %q", gotDir, root)
+		}
+	})
+	t.Run("ExactFile", func(t *testing.T) {
+		root, _, _ := mkNestedDirs(t)
+		if _, err := Init(root); err != nil {
+			t.Fatalf("Init(%q) error: %v", root, err)
+		}
+
+		path := filepath.Join(root, "devbox.json")
+		cfg, err := Find(path)
+		if err != nil {
+			t.Fatalf("Find(%q) error: %v", path, err)
+		}
+		if cfg.Root.AbsRootPath != path {
+			t.Errorf("cfg.Root.AbsRootPath = %q, want %q", cfg.Root.AbsRootPath, path)
+		}
+	})
 }
 
-func TestNoChanges(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `a config that's loaded and saved without any changes should have unchanged json
--- in --
-{ "packages": { "go": "latest" } }
--- want --
-{ "packages": { "go": "latest" } }`)
+func TestFindError(t *testing.T) {
+	t.Run("NotExist", func(t *testing.T) {
+		root, _, _ := mkNestedDirs(t)
+		if _, err := Init(root); err != nil {
+			t.Fatalf("Init(%q) error: %v", root, err)
+		}
 
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
+		path := filepath.Join(root, "notafile.json")
+		cfg, err := Find(path)
+		if err == nil {
+			t.Fatalf("Find(%q) = %q, want error", path, cfg.Root.AbsRootPath)
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Error("errors.Is(err, fs.ErrNotExist) = false, want true")
+		}
+		if errors.Is(err, ErrNotFound) {
+			t.Error("errors.Is(err, ErrNotFound) = true, want false")
+		}
+	})
+	t.Run("NotFound", func(t *testing.T) {
+		root, child, _ := mkNestedDirs(t)
+		if _, err := Init(child); err != nil {
+			t.Fatalf("Init(%q) error: %v", root, err)
+		}
+
+		cfg, err := Find(root)
+		if err == nil {
+			t.Fatalf("Find(%q) = %q, want error", root, cfg.Root.AbsRootPath)
+		}
+		if !errors.Is(err, ErrNotFound) {
+			t.Error("errors.Is(err, ErrNotFound) = false, want true")
+		}
+	})
+	t.Run("Permissions", func(t *testing.T) {
+		root, child, _ := mkNestedDirs(t)
+		if _, err := Init(root); err != nil {
+			t.Fatalf("Init(%q) error: %v", root, err)
+		}
+		if _, err := Init(child); err != nil {
+			t.Fatalf("Init(%q) error: %v", child, err)
+		}
+		path := filepath.Join(child, "devbox.json")
+		if err := os.Chmod(path, 0o000); err != nil {
+			t.Fatalf("os.Chmod(%q, 0o000) error: %v", path, err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(path, 0o666) })
+
+		cfg, err := Find(child)
+		if err == nil {
+			t.Fatalf("Find(%q) = %q, want error", child, cfg.Root.AbsRootPath)
+		}
+		if !errors.Is(err, fs.ErrPermission) {
+			t.Error("errors.Is(err, fs.ErrPermission) = false, want true")
+		}
+	})
+	t.Run("ExactFileBadSyntax", func(t *testing.T) {
+		root, _, _ := mkNestedDirs(t)
+
+		var (
+			path = filepath.Join(root, "devbox.json")
+			data = []byte("this isn't json!")
+			perm = fs.FileMode(0o666)
+		)
+		if err := os.WriteFile(path, data, perm); err != nil {
+			t.Fatalf("os.WriteFile(%q, []byte(%q), %O) error: %v", path, data, perm, err)
+		}
+
+		cfg, err := Find(path)
+		if err == nil {
+			t.Fatalf("Find(%q) = %q, want error", path, cfg.Root.AbsRootPath)
+		}
+	})
+	t.Run("ExactFilePermissions", func(t *testing.T) {
+		root, _, _ := mkNestedDirs(t)
+		if _, err := Init(root); err != nil {
+			t.Fatalf("Init(%q) error: %v", root, err)
+		}
+		path := filepath.Join(root, "devbox.json")
+		if err := os.Chmod(path, 0o000); err != nil {
+			t.Fatalf("os.Chmod(%q, 0o000) error: %v", path, err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(path, 0o666) })
+
+		cfg, err := Find(path)
+		if err == nil {
+			t.Fatalf("Find(%q) = %q, want error", path, cfg.Root.AbsRootPath)
+		}
+		if !errors.Is(err, fs.ErrPermission) {
+			t.Error("errors.Is(err, fs.ErrPermission) = false, want true")
+		}
+	})
 }
 
-func TestAddPackageEmptyConfig(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-{}
--- want --
-{
-  "packages": {
-    "go": "latest"
-  }
-}`)
+// mkNestedDirs sets up a nested directory structure for Find and Open tests.
+func mkNestedDirs(t *testing.T) (root, child, nested string) {
+	t.Helper()
 
-	in.Packages.Add("go@latest")
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
-}
+	root = t.TempDir()
+	child = filepath.Join(root, "child")
+	nested = filepath.Join(child, "nested")
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
 
-func TestAddPackageEmptyConfigWhitespace(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-{
-
-}
--- want --
-{
-  "packages": {
-    "go": "latest"
-  }
-}`)
-
-	in.Packages.Add("go@latest")
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
+	perm := fs.FileMode(0o777)
+	if err := os.MkdirAll(nested, perm); err != nil {
+		t.Fatalf("os.MkdirAll(%q, %O) error: %v", nested, perm, err)
 	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
-}
-
-func TestAddPackageEmptyConfigComment(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-// Comment
-{}
--- want --
-// Comment
-{
-  "packages": {
-    "go": "latest",
-  },
-}`)
-
-	in.Packages.Add("go@latest")
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
-}
-
-func TestAddPackageNull(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-{ "packages": null }
--- want --
-{
-  "packages": {
-    "go": "latest"
-  }
-}`)
-
-	in.Packages.Add("go@latest")
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
-}
-
-func TestAddPackageObject(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-{
-  "packages": {
-    "go": "latest"
-  }
-}
--- want --
-{
-  "packages": {
-    "go":     "latest",
-    "python": "3.10"
-  }
-}`)
-
-	in.Packages.Add("python@3.10")
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
-}
-
-func TestAddPackageObjectComment(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-{
-  "packages": {
-    // Package comment
-    "go": "latest"
-  }
-}
--- want --
-{
-  "packages": {
-    // Package comment
-    "go":     "latest",
-    "python": "3.10",
-  },
-}`)
-
-	in.Packages.Add("python@3.10")
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
-}
-
-func TestAddPackageEmptyArray(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-{
-  "packages": []
-}
--- want --
-{
-  "packages": ["go@latest"]
-}`)
-
-	in.Packages.Add("go@latest")
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
-}
-
-func TestAddPackageOneLineArray(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-{
-  "packages": ["go"]
-}
--- want --
-{
-  "packages": [
-    "go",
-    "python@3.10"
-  ]
-}`)
-
-	in.Packages.Add("python@3.10")
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
-}
-
-func TestAddPackageMultiLineArray(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-{
-  "packages": [
-    "go"
-  ]
-}
--- want --
-{
-  "packages": [
-    "go",
-    "python@3.10"
-  ]
-}`)
-
-	in.Packages.Add("python@3.10")
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
-}
-
-func TestAddPackageArrayComments(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-{
-  "packages": [
-    // Go package comment
-    "go",
-
-    // Python package comment
-    "python@3.10"
-  ]
-}
--- want --
-{
-  "packages": [
-    // Go package comment
-    "go",
-
-    // Python package comment
-    "python@3.10",
-    "hello@latest",
-  ],
-}`)
-
-	in.Packages.Add("hello@latest")
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
-}
-
-func TestRemovePackageObject(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-{
-  "packages": {
-    "go": "latest",
-    "python": "3.10"
-  }
-}
--- want --
-{
-  "packages": {
-    "python": "3.10"
-  }
-}`)
-
-	in.Packages.Remove("go@latest")
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
-}
-
-func TestRemovePackageLastMember(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-{
-  "env": {"NAME": "value"},
-  "packages": {
-    "go": "latest"
-  }
-}
--- want --
-{
-  "env":      {"NAME": "value"},
-  "packages": {}
-}`)
-
-	in.Packages.Remove("go@latest")
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes(), optBytesToStrings()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
-}
-
-func TestRemovePackageArray(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-{
-  "packages": ["go@latest", "python@3.10"]
-}
--- want --
-{
-  "packages": ["python@3.10"]
-}`)
-
-	in.Packages.Remove("go@latest")
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
-}
-
-func TestRemovePackageLastElement(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-{
-  "packages": ["go@latest"],
-  "env": {
-    "NAME": "value"
-  }
-}
--- want --
-{
-  "packages": [],
-  "env": {
-    "NAME": "value"
-  }
-}`)
-
-	in.Packages.Remove("go@latest")
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
-}
-
-func TestAddPlatforms(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-{
-  "packages": {
-    "go": {
-      "version": "1.20"
-    },
-    "python": {
-      "version": "3.10",
-      "platforms": [
-        "x86_64-linux"
-      ]
-    },
-    "hello": {
-      "version": "latest",
-      "platforms": ["x86_64-linux"]
-    },
-    "vim": {
-      "version": "latest"
-    }
-  }
-}
--- want --
-{
-  "packages": {
-    "go": {
-      "version":   "1.20",
-      "platforms": ["aarch64-darwin", "x86_64-darwin"]
-    },
-    "python": {
-      "version": "3.10",
-      "platforms": [
-        "x86_64-linux",
-        "x86_64-darwin"
-      ]
-    },
-    "hello": {
-      "version":   "latest",
-      "platforms": ["x86_64-linux", "x86_64-darwin"]
-    },
-    "vim": {
-      "version": "latest"
-    }
-  }
-}`)
-
-	err := in.Packages.AddPlatforms(io.Discard, "go@1.20", []string{"aarch64-darwin", "x86_64-darwin"})
-	if err != nil {
-		t.Error(err)
-	}
-	err = in.Packages.AddPlatforms(io.Discard, "python@3.10", []string{"x86_64-darwin"})
-	if err != nil {
-		t.Error(err)
-	}
-	err = in.Packages.AddPlatforms(io.Discard, "hello@latest", []string{"x86_64-darwin"})
-	if err != nil {
-		t.Error(err)
-	}
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
-}
-
-func TestAddPlatformsMigrateArray(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-{
-  "packages": ["go", "python@3.10", "hello"]
-}
--- want --
-{
-  "packages": {
-    "go": {
-      "platforms": ["aarch64-darwin"]
-    },
-    "python": {
-      "version":   "3.10",
-      "platforms": ["x86_64-darwin", "x86_64-linux"]
-    },
-    "hello": ""
-  }
-}`)
-
-	err := in.Packages.AddPlatforms(io.Discard, "go", []string{"aarch64-darwin"})
-	if err != nil {
-		t.Error(err)
-	}
-	err = in.Packages.AddPlatforms(io.Discard, "python@3.10", []string{"x86_64-darwin", "x86_64-linux"})
-	if err != nil {
-		t.Error(err)
-	}
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
-}
-
-func TestAddPlatformsMigrateArrayComments(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-{
-  "packages": [
-    // Go comment
-    "go",
-
-    // Python comment
-    "python@3.10"
-  ]
-}
--- want --
-{
-  "packages": {
-    // Go comment
-    "go": "",
-    // Python comment
-    "python": {
-      "version":   "3.10",
-      "platforms": ["x86_64-darwin", "x86_64-linux"],
-    },
-  },
-}`)
-
-	err := in.Packages.AddPlatforms(io.Discard, "python@3.10", []string{"x86_64-darwin", "x86_64-linux"})
-	if err != nil {
-		t.Error(err)
-	}
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
-}
-
-func TestExcludePlatforms(t *testing.T) {
-	in, want := parseConfigTxtarTest(t, `
--- in --
-{
-  "packages": {
-    "go": {
-      "version": "1.20"
-    }
-  }
-}
--- want --
-{
-  "packages": {
-    "go": {
-      "version":            "1.20",
-      "excluded_platforms": ["aarch64-darwin"]
-    }
-  }
-}`)
-
-	err := in.Packages.ExcludePlatforms(io.Discard, "go@1.20", []string{"aarch64-darwin"})
-	if err != nil {
-		t.Error(err)
-	}
-	if diff := cmp.Diff(want, in.Bytes(), optParseHujson()); diff != "" {
-		t.Errorf("wrong parsed config json (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(want, in.Bytes()); diff != "" {
-		t.Errorf("wrong raw config hujson (-want +got):\n%s", diff)
-	}
+	return root, child, nested
 }
 
 func TestDefault(t *testing.T) {
 	path := filepath.Join(t.TempDir())
-	in := DefaultConfig()
-	inBytes := in.Bytes()
+	cfg := DefaultConfig()
+	inBytes := cfg.Root.Bytes()
 	if _, err := hujson.Parse(inBytes); err != nil {
 		t.Fatalf("default config JSON is invalid: %v\n%s", err, inBytes)
 	}
-	err := in.SaveTo(path)
+	err := cfg.Root.SaveTo(path)
 	if err != nil {
 		t.Fatal("got save error:", err)
 	}
-	out, err := Load(filepath.Join(path, defaultName))
+	out, err := Open(filepath.Join(path, configfile.DefaultName))
 	if err != nil {
 		t.Fatal("got load error:", err)
 	}
-	if diff := cmp.Diff(in, out, cmpopts.IgnoreUnexported(Config{}, Packages{})); diff != "" {
+	if diff := cmp.Diff(
+		cfg,
+		out,
+		cmpopts.IgnoreUnexported(configfile.ConfigFile{}, configfile.PackagesMutator{}, Config{}),
+		cmpopts.IgnoreFields(configfile.ConfigFile{}, "AbsRootPath"),
+	); diff != "" {
 		t.Errorf("configs not equal (-in +out):\n%s", diff)
 	}
 
-	outBytes := out.Bytes()
+	outBytes := out.Root.Bytes()
 	if _, err := hujson.Parse(outBytes); err != nil {
 		t.Fatalf("loaded default config JSON is invalid: %v\n%s", err, outBytes)
 	}
 	if string(inBytes) != string(outBytes) {
 		t.Errorf("got different JSON after load/save/load:\ninput:\n%s\noutput:\n%s", inBytes, outBytes)
+	}
+}
+
+func TestOSExpandIfPossible(t *testing.T) {
+	tests := []struct {
+		name        string
+		env         map[string]string
+		existingEnv map[string]string
+		want        map[string]string
+	}{
+		{
+			name: "basic expansion",
+			env: map[string]string{
+				"FOO": "$BAR",
+				"BAZ": "${QUX}",
+			},
+			existingEnv: map[string]string{
+				"BAR": "bar_value",
+				"QUX": "qux_value",
+			},
+			want: map[string]string{
+				"FOO": "bar_value",
+				"BAZ": "qux_value",
+			},
+		},
+		{
+			name: "missing values remain as template",
+			env: map[string]string{
+				"FOO": "$BAR",
+				"BAZ": "${QUX}",
+			},
+			existingEnv: map[string]string{
+				"BAR": "bar_value",
+				// QUX is missing
+			},
+			want: map[string]string{
+				"FOO": "bar_value",
+				"BAZ": "${QUX}",
+			},
+		},
+		{
+			name: "nil existing env",
+			env: map[string]string{
+				"FOO": "$BAR",
+				"BAZ": "${QUX}",
+			},
+			existingEnv: nil,
+			want: map[string]string{
+				"FOO": "${BAR}",
+				"BAZ": "${QUX}",
+			},
+		},
+		{
+			name: "empty existing env",
+			env: map[string]string{
+				"FOO": "$BAR",
+			},
+			existingEnv: map[string]string{},
+			want: map[string]string{
+				"FOO": "${BAR}",
+			},
+		},
+		{
+			name: "mixed literal and variable",
+			env: map[string]string{
+				"FOO": "prefix_${BAR}_suffix",
+			},
+			existingEnv: map[string]string{
+				"BAR": "bar_value",
+			},
+			want: map[string]string{
+				"FOO": "prefix_bar_value_suffix",
+			},
+		},
+		{
+			name: "path special case",
+			env: map[string]string{
+				"FOO": "/my/config:$FOO",
+			},
+			existingEnv: map[string]string{
+				"FOO": "/my/plugin:$FOO",
+			},
+			want: map[string]string{
+				"FOO": "/my/config:/my/plugin:$FOO",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := OSExpandIfPossible(tt.env, tt.existingEnv)
+			if len(got) != len(tt.want) {
+				t.Errorf("OSExpandIfPossible() got %v entries, want %v entries", len(got), len(tt.want))
+			}
+			for k, v := range tt.want {
+				if got[k] != v {
+					t.Errorf("OSExpandIfPossible() for key %q = %q, want %q", k, got[k], v)
+				}
+			}
+		})
 	}
 }

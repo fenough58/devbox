@@ -1,55 +1,80 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package devbox
 
 import (
 	"context"
+
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"go.jetpack.io/devbox/internal/integrations/envsec"
-	"go.jetpack.io/devbox/internal/nix/nixprofile"
 
-	"go.jetpack.io/devbox/internal/xdg"
+	"go.jetify.com/devbox/internal/devbox/devopt"
+	"go.jetify.com/devbox/internal/xdg"
 )
 
-// addDevboxUtilityPackage adds a package to the devbox utility profile.
-// It's used to install applications devbox might need, like process-compose
-// This is an alternative to a global install which would modify a user's
-// environment.
-func (d *Devbox) addDevboxUtilityPackage(ctx context.Context, pkg string) error {
-	profilePath, err := utilityNixProfilePath()
+const processComposeVersion = "1.64.1"
+
+var utilProjectConfigPath string
+
+func initDevboxUtilityProject(ctx context.Context, stderr io.Writer) error {
+	devboxUtilityProjectPath, err := ensureDevboxUtilityConfig()
 	if err != nil {
 		return err
 	}
 
-	return nixprofile.ProfileInstall(ctx, &nixprofile.ProfileInstallArgs{
-		Lockfile:    d.lockfile,
-		Package:     pkg,
-		ProfilePath: profilePath,
-		Writer:      d.stderr,
+	box, err := Open(&devopt.Opts{
+		Dir:    devboxUtilityProjectPath,
+		Stderr: stderr,
 	})
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	// Add all utilities here.
+	utilities := []string{
+		"process-compose@" + processComposeVersion,
+	}
+	if err = box.Add(ctx, utilities, devopt.AddOpts{}); err != nil {
+		return err
+	}
+
+	return box.Install(ctx)
 }
 
-// addDevboxUtilityPackages adds binaries that we want the user to have access
-// to (e.g. envsec).
-// Question: Should we add utilityBinPath here? That would allow user to use
-// process-compose, etc
-func (d *Devbox) addUtilitiesToPath(
-	ctx context.Context,
-	path string,
-) (string, error) {
-	if d.cfg.IsEnvsecEnabled() {
-		envsecPath, err := envsec.EnsureInstalled(ctx)
-		if err != nil {
-			return "", err
-		}
-		path = path + string(os.PathListSeparator) + filepath.Dir(envsecPath)
+func ensureDevboxUtilityConfig() (string, error) {
+	if utilProjectConfigPath != "" {
+		return utilProjectConfigPath, nil
 	}
-	return path, nil
+
+	path, err := utilityDataPath()
+	if err != nil {
+		return "", err
+	}
+
+	err = EnsureConfig(path)
+	if err != nil {
+		return "", err
+	}
+
+	for _, installable := range installables {
+		for _, profileItem := range profile {
+			if profileItem.MatchesUnlockedReference(installable) {
+				err = nix.ProfileRemove(utilityProfilePath, profileItem.NameOrIndex())
+				if err != nil {
+					return err
+				}
+				// We are done with this installable. Now, remove the next installable:
+				break
+			}
+		}
+	}
+	return nil
+
 }
 
 func utilityLookPath(binName string) (string, error) {
@@ -75,7 +100,7 @@ func utilityNixProfilePath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(path, "profile"), nil
+	return filepath.Join(path, ".devbox/nix/profile"), nil
 }
 
 func utilityBinPath() (string, error) {
@@ -83,5 +108,6 @@ func utilityBinPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(nixProfilePath, "bin"), nil
+
+	return filepath.Join(nixProfilePath, "default/bin"), nil
 }

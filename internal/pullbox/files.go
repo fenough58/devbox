@@ -1,4 +1,4 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package pullbox
@@ -11,9 +11,10 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"go.jetpack.io/devbox/internal/cmdutil"
-	"go.jetpack.io/devbox/internal/devconfig"
-	"go.jetpack.io/devbox/internal/fileutil"
+	"go.jetify.com/devbox/internal/cmdutil"
+	"go.jetify.com/devbox/internal/devconfig"
+	"go.jetify.com/devbox/internal/devconfig/configfile"
+	"go.jetify.com/devbox/internal/fileutil"
 )
 
 func (p *pullbox) copyToProfile(src string) error {
@@ -62,7 +63,7 @@ func profileIsNotEmpty(path string) (bool, error) {
 		return false, errors.WithStack(err)
 	}
 	for _, entry := range entries {
-		if !devconfig.IsConfigName(entry.Name()) ||
+		if entry.Name() != configfile.DefaultName ||
 			isModifiedConfig(filepath.Join(path, entry.Name())) {
 			return true, nil
 		}
@@ -71,12 +72,8 @@ func profileIsNotEmpty(path string) (bool, error) {
 }
 
 func isModifiedConfig(path string) bool {
-	if devconfig.IsConfigName(filepath.Base(path)) {
-		cfg, err := devconfig.Load(path)
-		if err != nil {
-			return false
-		}
-		return !cfg.Equals(devconfig.DefaultConfig())
+	if filepath.Base(path) == configfile.DefaultName {
+		return !devconfig.IsDefault(path)
 	}
 	return false
 }

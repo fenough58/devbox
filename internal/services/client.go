@@ -1,4 +1,4 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package services
@@ -14,7 +14,7 @@ import (
 	"github.com/f1bonacc1/process-compose/src/types"
 )
 
-type processStates = types.ProcessStates
+type processStates = types.ProcessesState
 
 type Process struct {
 	Name     string

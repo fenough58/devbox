@@ -8,9 +8,9 @@ import (
 
 	"github.com/rogpeppe/go-internal/testscript"
 
-	"go.jetpack.io/devbox/internal/devconfig"
-	"go.jetpack.io/devbox/internal/envir"
-	"go.jetpack.io/devbox/internal/lock"
+	"go.jetify.com/devbox/internal/devconfig"
+	"go.jetify.com/devbox/internal/envir"
+	"go.jetify.com/devbox/internal/lock"
 )
 
 // Usage: env.path.len <number>
@@ -42,21 +42,21 @@ func assertDevboxJSONPackagesContains(script *testscript.TestScript, neg bool, a
 
 	data := script.ReadFile(args[0])
 	list := devconfig.Config{}
-	err := json.Unmarshal([]byte(data), &list)
+	err := json.Unmarshal([]byte(data), &list.Root)
 	script.Check(err)
 
 	expected := args[1]
-	for _, actual := range list.Packages.VersionedNames() {
+	for _, actual := range packagesVersionedNames(list) {
 		if actual == expected {
 			if neg {
-				script.Fatalf("value '%s' found in '%s'", expected, list.Packages.VersionedNames())
+				script.Fatalf("value '%s' found in '%s'", expected, packagesVersionedNames(list))
 			}
 			return
 		}
 	}
 
 	if !neg {
-		script.Fatalf("value '%s' not found in '%s'", expected, list.Packages.VersionedNames())
+		script.Fatalf("value '%s' not found in '%s'", expected, packagesVersionedNames(list))
 	}
 }
 
@@ -193,4 +193,12 @@ func compare(one, two any) int {
 	}
 
 	return 0
+}
+
+func packagesVersionedNames(c devconfig.Config) []string {
+	result := make([]string, 0, len(c.Root.TopLevelPackages()))
+	for _, p := range c.Root.TopLevelPackages() {
+		result = append(result, p.VersionedName())
+	}
+	return result
 }

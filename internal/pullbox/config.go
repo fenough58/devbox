@@ -1,16 +1,17 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package pullbox
 
 import (
+	"context"
 	"net/url"
 	"os"
 	"path/filepath"
 
-	"go.jetpack.io/devbox/internal/cuecfg"
-	"go.jetpack.io/devbox/internal/devconfig"
-	"go.jetpack.io/devbox/internal/fileutil"
+	"go.jetify.com/devbox/internal/cuecfg"
+	"go.jetify.com/devbox/internal/devconfig"
+	"go.jetify.com/devbox/internal/fileutil"
 )
 
 func (p *pullbox) IsTextDevboxConfig() bool {
@@ -23,12 +24,12 @@ func (p *pullbox) IsTextDevboxConfig() bool {
 	return cuecfg.IsSupportedExtension(ext)
 }
 
-func (p *pullbox) pullTextDevboxConfig() error {
+func (p *pullbox) pullTextDevboxConfig(ctx context.Context) error {
 	if p.isLocalConfig() {
 		return p.copyToProfile(p.URL)
 	}
 
-	cfg, err := devconfig.LoadConfigFromURL(p.URL)
+	cfg, err := devconfig.LoadConfigFromURL(ctx, p.URL)
 	if err != nil {
 		return err
 	}
@@ -37,7 +38,7 @@ func (p *pullbox) pullTextDevboxConfig() error {
 	if err != nil {
 		return err
 	}
-	if err = cfg.SaveTo(tmpDir); err != nil {
+	if err = cfg.Root.SaveTo(tmpDir); err != nil {
 		return err
 	}
 

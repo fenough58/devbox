@@ -1,4 +1,4 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package plugin
@@ -12,8 +12,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
-	"go.jetpack.io/devbox/internal/devpkg"
-	"go.jetpack.io/devbox/internal/services"
+	"go.jetify.com/devbox/internal/devpkg"
+	"go.jetify.com/devbox/internal/services"
 )
 
 func Readme(ctx context.Context,
@@ -59,8 +59,8 @@ func Readme(ctx context.Context,
 	return buf.String(), nil
 }
 
-func printReadme(cfg *config, w io.Writer, markdown bool) error {
-	if cfg.Readme == "" {
+func printReadme(cfg *Config, w io.Writer, markdown bool) error {
+	if cfg.Description() == "" {
 		return nil
 	}
 	_, err := fmt.Fprintf(
@@ -68,12 +68,12 @@ func printReadme(cfg *config, w io.Writer, markdown bool) error {
 		"%s%s NOTES:\n%s\n\n",
 		lo.Ternary(markdown, "### ", ""),
 		cfg.Name,
-		cfg.Readme,
+		cfg.Description(),
 	)
 	return errors.WithStack(err)
 }
 
-func printServices(cfg *config, pkg *devpkg.Package, w io.Writer, markdown bool) error {
+func printServices(cfg *Config, pkg *devpkg.Package, w io.Writer, markdown bool) error {
 	_, contentPath := cfg.ProcessComposeYaml()
 	if contentPath == "" {
 		return nil
@@ -103,7 +103,7 @@ func printServices(cfg *config, pkg *devpkg.Package, w io.Writer, markdown bool)
 	return errors.WithStack(err)
 }
 
-func printCreateFiles(cfg *config, w io.Writer, markdown bool) error {
+func printCreateFiles(cfg *Config, w io.Writer, markdown bool) error {
 	if len(cfg.CreateFiles) == 0 {
 		return nil
 	}
@@ -124,7 +124,7 @@ func printCreateFiles(cfg *config, w io.Writer, markdown bool) error {
 	return errors.WithStack(err)
 }
 
-func printEnv(cfg *config, w io.Writer, markdown bool) error {
+func printEnv(cfg *Config, w io.Writer, markdown bool) error {
 	if len(cfg.Env) == 0 {
 		return nil
 	}

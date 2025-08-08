@@ -1,12 +1,14 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package devpkg
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -14,14 +16,18 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
-	"go.jetpack.io/devbox/internal/boxcli/usererr"
-	"go.jetpack.io/devbox/internal/cachehash"
-	"go.jetpack.io/devbox/internal/devbox/devopt"
-	"go.jetpack.io/devbox/internal/devconfig"
-	"go.jetpack.io/devbox/internal/devpkg/pkgtype"
-	"go.jetpack.io/devbox/internal/lock"
-	"go.jetpack.io/devbox/internal/nix"
-	"go.jetpack.io/devbox/plugins"
+	"go.jetify.com/devbox/internal/boxcli/featureflag"
+	"go.jetify.com/devbox/internal/boxcli/usererr"
+	"go.jetify.com/devbox/internal/cachehash"
+	"go.jetify.com/devbox/internal/debug"
+	"go.jetify.com/devbox/internal/devbox/devopt"
+	"go.jetify.com/devbox/internal/devconfig/configfile"
+	"go.jetify.com/devbox/internal/devpkg/pkgtype"
+	"go.jetify.com/devbox/internal/lock"
+	"go.jetify.com/devbox/internal/nix"
+	"go.jetify.com/devbox/internal/ux"
+	"go.jetify.com/devbox/nix/flake"
+	"go.jetify.com/devbox/plugins"
 )
 
 // Package represents a "package" added to the devbox.json config.
@@ -45,7 +51,7 @@ type Package struct {
 	//
 	// This is done for performance reasons. Some commands don't require the
 	// fully-resolved package, so we don't want to waste time computing it.
-	installable FlakeInstallable
+	installable flake.Installable
 
 	// resolve resolves a Devbox package string to a Nix installable.
 	//
@@ -59,10 +65,6 @@ type Package struct {
 	//
 	// For flake packages (non-devbox packages), resolve is a no-op.
 	resolve func() error
-
-	// storePath is set by resolve if the package exists in the Nix binary
-	// cache.
-	storePath string
 
 	// Raw is the devbox package name from the devbox.json config.
 	// Raw has a few forms:
@@ -78,25 +80,22 @@ type Package struct {
 	//    example: github:nixos/nixpkgs/5233fd2ba76a3accb5aaa999c00509a11fd0793c#hello
 	Raw string
 
-	// PatchGlibc applies a function to the package's derivation that
-	// patches any ELF binaries to use the latest version of nixpkgs#glibc.
-	PatchGlibc bool
+	// Outputs is a list of outputs to build from the package's derivation.
+	outputs outputs
+
+	// Patch controls if Devbox environments will do additional patching to
+	// address known issues with the package.
+	Patch bool
+
+	// AllowInsecure are a list of nix packages that are whitelisted to be
+	// installed even if they are marked as insecure.
+	AllowInsecure []string
 
 	// isInstallable is true if the package may be enabled on the current platform.
-	isInstallable bool
+	// It's a function to allow deferring nix System call until it's needed.
+	isInstallable func() bool
 
 	normalizedPackageAttributePathCache string // memoized value from normalizedPackageAttributePath()
-}
-
-// PackagesFromStringsWithDefaults constructs Package from the list of package names provided.
-// These names correspond to devbox packages from the devbox.json config.
-func PackagesFromStringsWithDefaults(rawNames []string, l lock.Locker) []*Package {
-	packages := []*Package{}
-	for _, rawName := range rawNames {
-		pkg := PackageFromStringWithDefaults(rawName, l)
-		packages = append(packages, pkg)
-	}
-	return packages
 }
 
 func PackagesFromStringsWithOptions(rawNames []string, l lock.Locker, opts devopt.AddOpts) []*Package {
@@ -107,108 +106,104 @@ func PackagesFromStringsWithOptions(rawNames []string, l lock.Locker, opts devop
 	return packages
 }
 
-func PackagesFromConfig(config *devconfig.Config, l lock.Locker) []*Package {
+func PackagesFromConfig(packages []configfile.Package, l lock.Locker) []*Package {
 	result := []*Package{}
-	for _, cfgPkg := range config.Packages.Collection {
-		pkg := newPackage(cfgPkg.VersionedName(), cfgPkg.IsEnabledOnPlatform(), l)
+	for _, cfgPkg := range packages {
+		pkg := newPackage(cfgPkg.VersionedName(), cfgPkg.IsEnabledOnPlatform, l)
 		pkg.DisablePlugin = cfgPkg.DisablePlugin
-		pkg.PatchGlibc = cfgPkg.PatchGlibc && nix.SystemIsLinux()
+		pkg.Patch = pkgNeedsPatch(pkg.CanonicalName(), cfgPkg.Patch)
+		pkg.outputs.selectedNames = lo.Uniq(append(pkg.outputs.selectedNames, cfgPkg.Outputs...))
+		pkg.AllowInsecure = cfgPkg.AllowInsecure
 		result = append(result, pkg)
 	}
 	return result
 }
 
 func PackageFromStringWithDefaults(raw string, locker lock.Locker) *Package {
-	return newPackage(raw, true /*isInstallable*/, locker)
+	return newPackage(raw, func() bool { return true } /*isInstallable*/, locker)
 }
 
 func PackageFromStringWithOptions(raw string, locker lock.Locker, opts devopt.AddOpts) *Package {
 	pkg := PackageFromStringWithDefaults(raw, locker)
 	pkg.DisablePlugin = opts.DisablePlugin
-	pkg.PatchGlibc = opts.PatchGlibc
+	pkg.Patch = pkgNeedsPatch(pkg.CanonicalName(), configfile.PatchMode(opts.Patch))
+	pkg.outputs.selectedNames = lo.Uniq(append(pkg.outputs.selectedNames, opts.Outputs...))
+	pkg.AllowInsecure = opts.AllowInsecure
 	return pkg
 }
 
-func newPackage(raw string, isInstallable bool, locker lock.Locker) *Package {
+func newPackage(raw string, isInstallable func() bool, locker lock.Locker) *Package {
 	pkg := &Package{
 		Raw:           raw,
 		lockfile:      locker,
-		isInstallable: isInstallable,
+		isInstallable: sync.OnceValue(isInstallable),
 	}
 
 	// The raw string is either a Devbox package ("name" or "name@version")
 	// or it's a flake installable. In some cases they're ambiguous
 	// ("nixpkgs" is a devbox package and a flake). When that happens, we
 	// assume a Devbox package.
-	parsed, err := ParseFlakeInstallable(raw)
-	if err != nil || isAmbiguous(raw, parsed) {
+	parsed, err := flake.ParseInstallable(raw)
+	if err != nil || pkgtype.IsAmbiguous(raw, parsed) {
+		// TODO: This sets runx packages as devbox packages. Not sure if that's what we want.
 		pkg.IsDevboxPackage = true
 		pkg.resolve = sync.OnceValue(func() error { return resolve(pkg) })
 		return pkg
 	}
 
-	// We currently don't lock flake references in devbox.lock, so there's
-	// nothing to resolve.
-	pkg.resolve = sync.OnceValue(func() error { return nil })
+	pkg.resolve = sync.OnceValue(func() error {
+		// Don't lock flakes that are local paths.
+		if parsed.Ref.Type == flake.TypePath {
+			return nil
+		}
+		return resolve(pkg)
+	})
 	pkg.setInstallable(parsed, locker.ProjectDir())
+	pkg.outputs = outputs{selectedNames: strings.Split(parsed.Outputs, ",")}
+	pkg.Patch = pkgNeedsPatch(pkg.CanonicalName(), configfile.PatchAuto)
 	return pkg
-}
-
-// isAmbiguous returns true if a package string could be a Devbox package or
-// a flake installable. For example, "nixpkgs" is both a Devbox package and a
-// flake.
-func isAmbiguous(raw string, parsed FlakeInstallable) bool {
-	// Devbox package strings never have a #attr_path in them.
-	if parsed.AttrPath != "" {
-		return false
-	}
-
-	// Indirect installables must have a "flake:" scheme to disambiguate
-	// them from legacy (unversioned) devbox package strings.
-	if parsed.Ref.Type == FlakeTypeIndirect {
-		return !strings.HasPrefix(raw, "flake:")
-	}
-
-	// Path installables must have a "path:" scheme, start with "/" or start
-	// with "./" to disambiguate them from devbox package strings.
-	if parsed.Ref.Type == FlakeTypePath {
-		if raw[0] == '.' || raw[0] == '/' {
-			return false
-		}
-		if strings.HasPrefix(raw, "path:") {
-			return false
-		}
-		return true
-	}
-
-	// All other flakeref types must have a scheme, so we know those can't
-	// be devbox package strings.
-	return false
 }
 
 // resolve is the implementation of Package.resolve, where it is wrapped in a
 // sync.OnceValue function. It should not be called directly.
 func resolve(pkg *Package) error {
-	resolved, err := pkg.lockfile.Resolve(pkg.Raw)
+	resolved, err := pkg.lockfile.Resolve(pkg.LockfileKey())
 	if err != nil {
 		return err
 	}
-	if inCache, err := pkg.IsInBinaryCache(); err == nil && inCache {
-		pkg.storePath = resolved.Systems[nix.System()].StorePath
-	}
-	parsed, err := ParseFlakeInstallable(resolved.Resolved)
+	parsed, err := flake.ParseInstallable(resolved.Resolved)
 	if err != nil {
 		return err
 	}
+	parsed.Outputs = strings.Join(pkg.outputs.selectedNames, ",")
+
 	pkg.setInstallable(parsed, pkg.lockfile.ProjectDir())
 	return nil
 }
 
-func (p *Package) setInstallable(i FlakeInstallable, projectDir string) {
-	if i.Ref.Type == FlakeTypePath && !filepath.IsAbs(i.Ref.Path) {
+func (p *Package) setInstallable(i flake.Installable, projectDir string) {
+	if i.Ref.Type == flake.TypePath && !filepath.IsAbs(i.Ref.Path) {
 		i.Ref.Path = filepath.Join(projectDir, i.Ref.Path)
 	}
 	p.installable = i
+}
+
+func pkgNeedsPatch(canonicalName string, mode configfile.PatchMode) (patch bool) {
+	mode = cmp.Or(mode, configfile.PatchAuto)
+	switch mode {
+	case configfile.PatchAuto:
+		patch = canonicalName == "python"
+	case configfile.PatchAlways:
+		patch = true
+	case configfile.PatchNever:
+		patch = false
+	}
+	if patch {
+		slog.Debug("package needs patching", "pkg", canonicalName, "mode", mode)
+	} else {
+		slog.Debug("package doesn't need patching", "pkg", canonicalName, "mode", mode)
+	}
+	return patch
 }
 
 var inputNameRegex = regexp.MustCompile("[^a-zA-Z0-9-]+")
@@ -222,9 +217,9 @@ func (p *Package) FlakeInputName() string {
 
 	result := ""
 	switch p.installable.Ref.Type {
-	case FlakeTypePath:
+	case flake.TypePath:
 		result = filepath.Base(p.installable.Ref.Path) + "-" + p.Hash()
-	case FlakeTypeGitHub:
+	case flake.TypeGitHub:
 		isNixOS := strings.ToLower(p.installable.Ref.Owner) == "nixos"
 		isNixpkgs := isNixOS && strings.ToLower(p.installable.Ref.Repo) == "nixpkgs"
 		if isNixpkgs && p.IsDevboxPackage {
@@ -239,7 +234,7 @@ func (p *Package) FlakeInputName() string {
 			}
 		}
 	default:
-		result = p.installable.String() + "-" + p.Hash()
+		result = p.installable.Ref.String() + "-" + p.Hash()
 	}
 
 	// replace all non-alphanumeric with dashes
@@ -259,25 +254,51 @@ func (p *Package) URLForFlakeInput() string {
 // IsInstallable returns whether this package is installable. Not to be confused
 // with the Installable() method which returns the corresponding nix concept.
 func (p *Package) IsInstallable() bool {
-	return p.isInstallable
+	return p.isInstallable()
 }
 
-// Installable for this package. Installable is a nix concept defined here:
+// Installables for this package. Installables is a nix concept defined here:
 // https://nixos.org/manual/nix/stable/command-ref/new-cli/nix.html#installables
-func (p *Package) Installable() (string, error) {
-	inCache, err := p.IsInBinaryCache()
+func (p *Package) Installables() ([]string, error) {
+	outputNames, err := p.GetOutputNames()
+	if err != nil {
+		return nil, err
+	}
+	installables := []string{}
+	for _, outputName := range outputNames {
+		i, err := p.InstallableForOutput(outputName)
+		if err != nil {
+			return nil, err
+		}
+		installables = append(installables, i)
+	}
+	if len(installables) == 0 {
+		// This means that the package is not in the binary cache
+		// OR it is a flake (??)
+		installable, err := p.urlForInstall()
+		if err != nil {
+			return nil, err
+		}
+		return []string{installable}, nil
+	}
+	return installables, nil
+}
+
+func (p *Package) InstallableForOutput(output string) (string, error) {
+	inCache, err := p.IsOutputInBinaryCache(output)
 	if err != nil {
 		return "", err
 	}
 
 	if inCache {
-		installable, err := p.InputAddressedPath()
+		installable, err := p.InputAddressedPathForOutput(output)
 		if err != nil {
 			return "", err
 		}
 		return installable, nil
 	}
 
+	// TODO savil: does this work for outputs?
 	installable, err := p.urlForInstall()
 	if err != nil {
 		return "", err
@@ -288,8 +309,11 @@ func (p *Package) Installable() (string, error) {
 // FlakeInstallable returns a flake installable. The raw string must contain
 // a valid flake reference parsable by ParseFlakeRef, optionally followed by an
 // #attrpath and/or an ^output.
-func (p *Package) FlakeInstallable() (FlakeInstallable, error) {
-	return ParseFlakeInstallable(p.Raw)
+func (p *Package) FlakeInstallable() (flake.Installable, error) {
+	if err := p.resolve(); err != nil {
+		return flake.Installable{}, err
+	}
+	return p.installable, nil
 }
 
 // urlForInstall is used during `nix profile install`.
@@ -303,15 +327,16 @@ func (p *Package) urlForInstall() (string, error) {
 }
 
 func (p *Package) NormalizedDevboxPackageReference() (string, error) {
-	if err := p.resolve(); err != nil {
+	installable, err := p.FlakeInstallable()
+	if err != nil {
 		return "", err
 	}
-	if p.installable.AttrPath == "" {
+	if installable.AttrPath == "" {
 		return "", nil
 	}
-	clone := p.installable
-	clone.AttrPath = fmt.Sprintf("legacyPackages.%s.%s", nix.System(), clone.AttrPath)
-	return clone.String(), nil
+	installable.AttrPath = fmt.Sprintf("legacyPackages.%s.%s", nix.System(), installable.AttrPath)
+	installable.Outputs = ""
+	return installable.String(), nil
 }
 
 // PackageAttributePath returns the short attribute path for a package which
@@ -357,19 +382,19 @@ func (p *Package) NormalizedPackageAttributePath() (string, error) {
 // normalizePackageAttributePath calls nix search to find the normalized attribute
 // path. It may be an expensive call (~100ms).
 func (p *Package) normalizePackageAttributePath() (string, error) {
-	if err := p.resolve(); err != nil {
+	installable, err := p.FlakeInstallable()
+	if err != nil {
 		return "", err
 	}
-
-	query := p.installable.String()
+	installable.Outputs = ""
+	query := installable.String()
 	if query == "" {
 		query = p.Raw
 	}
 
 	// We prefer nix.Search over just trying to parse the package's "URL" because
 	// nix.Search will guarantee that the package exists for the current system.
-	var infos map[string]*nix.Info
-	var err error
+	var infos map[string]*nix.PkgInfo
 	if p.IsDevboxPackage && !p.IsRunX() {
 		// Perf optimization: For queries of the form nixpkgs/<commit>#foo, we can
 		// use a nix.Search cache.
@@ -434,14 +459,14 @@ var ErrCannotBuildPackageOnSystem = errors.New("unable to build for system")
 
 func (p *Package) Hash() string {
 	sum := ""
-	if p.installable.Ref.Type == FlakeTypePath {
+	if p.installable.Ref.Type == flake.TypePath {
 		// For local flakes, use content hash of the flake.nix file to ensure
 		// user always gets newest flake.
 		sum, _ = cachehash.File(filepath.Join(p.installable.Ref.Path, "flake.nix"))
 	}
 
 	if sum == "" {
-		sum, _ = cachehash.Bytes([]byte(p.installable.String()))
+		sum = cachehash.Bytes([]byte(p.installable.String()))
 	}
 	return sum[:min(len(sum), 6)]
 }
@@ -547,9 +572,36 @@ func (p *Package) HashFromNixPkgsURL() string {
 	return nix.HashFromNixPkgsURL(p.URLForFlakeInput())
 }
 
-// InputAddressedPath is the input-addressed path in /nix/store
+// InputAddressedPaths is the input-addressed path in /nix/store
 // It is also the key in the BinaryCache for this package
-func (p *Package) InputAddressedPath() (string, error) {
+func (p *Package) InputAddressedPaths() ([]string, error) {
+	if inCache, err := p.IsInBinaryCache(); err != nil {
+		return nil, err
+	} else if !inCache {
+		return nil,
+			errors.Errorf("Package %q cannot be fetched from binary cache store", p.Raw)
+	}
+
+	entry, err := p.lockfile.Resolve(p.LockfileKey())
+	if err != nil {
+		return nil, err
+	}
+
+	sysInfo := entry.Systems[nix.System()]
+	outputs := sysInfo.DefaultOutputs()
+
+	paths := []string{}
+	for _, output := range outputs {
+		p, err := p.InputAddressedPathForOutput(output.Name)
+		if err != nil {
+			return nil, err
+		}
+		paths = append(paths, p)
+	}
+	return paths, nil
+}
+
+func (p *Package) InputAddressedPathForOutput(output string) (string, error) {
 	if inCache, err := p.IsInBinaryCache(); err != nil {
 		return "", err
 	} else if !inCache {
@@ -557,17 +609,22 @@ func (p *Package) InputAddressedPath() (string, error) {
 			errors.Errorf("Package %q cannot be fetched from binary cache store", p.Raw)
 	}
 
-	entry, err := p.lockfile.Resolve(p.Raw)
+	entry, err := p.lockfile.Resolve(p.LockfileKey())
 	if err != nil {
 		return "", err
 	}
 
 	sysInfo := entry.Systems[nix.System()]
-	return sysInfo.StorePath, nil
+	for _, out := range sysInfo.Outputs {
+		if out.Name == output {
+			return out.Path, nil
+		}
+	}
+	return "", errors.Errorf("Output %q not found for package %q", output, p.Raw)
 }
 
-func (p *Package) AllowInsecure() bool {
-	return p.lockfile.Get(p.Raw).IsAllowInsecure()
+func (p *Package) HasAllowInsecure() bool {
+	return len(p.AllowInsecure) > 0
 }
 
 // StoreName returns the last section of the store path. Example:
@@ -587,11 +644,12 @@ func (p *Package) StoreName() (string, error) {
 }
 
 func (p *Package) EnsureUninstallableIsInLockfile() error {
+	// TODO savil: Should !p.isInstallable() be the opposite i.e. p.IsInstallable()?
 	// TODO savil: Do we need the IsDevboxPackage check here?
 	if !p.IsInstallable() || !p.IsDevboxPackage {
 		return nil
 	}
-	_, err := p.lockfile.Resolve(p.Raw)
+	_, err := p.lockfile.Resolve(p.LockfileKey())
 	return err
 }
 
@@ -614,10 +672,181 @@ func (p *Package) String() string {
 	return p.Raw
 }
 
+func (p *Package) LockfileKey() string {
+	// Use p.Raw instead of p.installable.Ref.String() because that will have
+	// absolute paths. TODO: We may want to change SetInstallable to avoid making
+	// flake ref absolute.
+	return p.Raw
+}
+
 func IsNix(p *Package, _ int) bool {
 	return !p.IsRunX()
 }
 
 func IsRunX(p *Package, _ int) bool {
 	return p.IsRunX()
+}
+
+func (p *Package) DocsURL() string {
+	if p.IsRunX() {
+		path, _, _ := strings.Cut(p.RunXPath(), "@")
+		return fmt.Sprintf("https://www.github.com/%s", path)
+	}
+	if p.IsDevboxPackage {
+		return fmt.Sprintf("https://www.nixhub.io/packages/%s", p.CanonicalName())
+	}
+	return ""
+}
+
+// GetOutputNames returns the names of the nix package outputs. Outputs can be
+// specified in devbox.json package fields or as part of the flake reference.
+func (p *Package) GetOutputNames() ([]string, error) {
+	if p.IsRunX() {
+		return []string{}, nil
+	}
+
+	return p.outputs.GetNames(p)
+}
+
+// GetOutputsWithCache return outputs and their cache URIs if the package is in the binary cache.
+// n+1 WARNING: This will make an http request if FillNarInfoCache is not called before.
+// Grep note: this is used in flake template
+func (p *Package) GetOutputsWithCache() ([]Output, error) {
+	defer debug.FunctionTimer().End()
+
+	names, err := p.GetOutputNames()
+	if err != nil || len(names) == 0 {
+		return nil, err
+	}
+
+	isEligibleForBinaryCache, err := p.isEligibleForBinaryCache()
+	if err != nil {
+		return nil, err
+	}
+
+	outputs := []Output{}
+	for _, name := range names {
+		output := Output{Name: name}
+		if isEligibleForBinaryCache {
+			status, err := p.fetchNarInfoStatusOnce(name)
+			if err != nil {
+				return nil, err
+			}
+			output.CacheURI = status[name]
+		}
+		outputs = append(outputs, output)
+	}
+	return outputs, nil
+}
+
+// GetResolvedStorePaths returns the store paths that are resolved (in lockfile)
+func (p *Package) GetResolvedStorePaths() ([]string, error) {
+	names, err := p.GetOutputNames()
+	if err != nil {
+		return nil, err
+	}
+	storePaths := []string{}
+	for _, name := range names {
+		outputs, err := p.outputsForOutputName(name)
+		if err != nil {
+			return nil, err
+		}
+		for _, output := range outputs {
+			storePaths = append(storePaths, output.Path)
+		}
+	}
+	return storePaths, nil
+}
+
+const MissingStorePathsWarning = "Outputs for %s are not in lockfile. To fix this issue and improve performance, please run " +
+	"`devbox install --tidy-lockfile`\n"
+
+func (p *Package) GetStorePaths(ctx context.Context, w io.Writer) ([]string, error) {
+	storePathsForPackage, err := p.GetResolvedStorePaths()
+	if err != nil || len(storePathsForPackage) > 0 {
+		return storePathsForPackage, err
+	}
+
+	if featureflag.TidyWarning.Enabled() && p.IsDevboxPackage {
+		// No fast path, we need to query nix.
+		ux.FHidableWarning(ctx, w, MissingStorePathsWarning, p.Raw)
+	}
+
+	installables, err := p.Installables()
+	if err != nil {
+		return nil, err
+	}
+	for _, installable := range installables {
+		storePathsForInstallable, err := nix.StorePathsFromInstallable(
+			ctx, installable, p.HasAllowInsecure())
+		if err != nil {
+			return nil, packageInstallErrorHandler(err, p, installable)
+		}
+		storePathsForPackage = append(storePathsForPackage, storePathsForInstallable...)
+	}
+	return storePathsForPackage, nil
+}
+
+// packageInstallErrorHandler checks for two kinds of errors to print custom messages for so that Devbox users
+// can work around them:
+// 1. Packages that cannot be installed on the current system, but may be installable on other systems.packageInstallErrorHandler
+// 2. Packages marked insecure by nix
+func packageInstallErrorHandler(err error, pkg *Package, installableOrEmpty string) error {
+	if err == nil {
+		return nil
+	}
+
+	// Check if the user is installing a package that cannot be installed on their platform.
+	// For example, glibcLocales on MacOS will give the following error:
+	// flake output attribute 'legacyPackages.x86_64-darwin.glibcLocales' is not a derivation or path
+	// This is because glibcLocales is only available on Linux.
+	// The user should try `devbox add` again with `--exclude-platform`
+	errMessage := strings.TrimSpace(err.Error())
+
+	// Sample error from `devbox add glibcLocales` on a mac:
+	// error: flake output attribute 'legacyPackages.x86_64-darwin.glibcLocales' is not a derivation or path
+	maybePackageSystemCompatibilityErrorType1 := strings.Contains(errMessage, "error: flake output attribute") &&
+		strings.Contains(errMessage, "is not a derivation or path")
+	// Sample error from `devbox add sublime4` on a mac:
+	// error: Package ‘sublimetext4-4169’ in /nix/store/nlbjx0mp83p2qzf1rkmzbgvq1wxfir81-source/pkgs/applications/editors/sublime/4/common.nix:168 is not available on the requested hostPlatform:
+	//     hostPlatform.config = "x86_64-apple-darwin"
+	//     package.meta.platforms = [
+	//       "aarch64-linux"
+	//       "x86_64-linux"
+	//    ]
+	maybePackageSystemCompatibilityErrorType2 := strings.Contains(errMessage, "is not available on the requested hostPlatform")
+
+	if maybePackageSystemCompatibilityErrorType1 || maybePackageSystemCompatibilityErrorType2 {
+		platform := nix.System()
+		return usererr.WithUserMessage(
+			err,
+			"package %s cannot be installed on your platform %s.\n"+
+				"If you know this package is incompatible with %[2]s, then "+
+				"you could run `devbox add %[1]s --exclude-platform %[2]s` and re-try.\n"+
+				"If you think this package should be compatible with %[2]s, then "+
+				"it's possible this particular version is not available yet from the nix registry. "+
+				"You could try `devbox add` with a different version for this package.\n\n"+
+				"Underlying Error from nix is:",
+			pkg.Versioned(),
+			platform,
+		)
+	}
+
+	if isInsecureErr, userErr := nix.IsExitErrorInsecurePackage(err, pkg.Versioned(), installableOrEmpty); isInsecureErr {
+		return userErr
+	}
+
+	return usererr.WithUserMessage(err, "error installing package %s", pkg.Raw)
+}
+
+func (p *Package) ResolvedVersion() (string, error) {
+	if err := p.resolve(); err != nil {
+		return "", err
+	}
+	lockPackage := p.lockfile.Get(p.Raw)
+	// Flake packages don't have any values in the lockfile
+	if lockPackage == nil {
+		return "", nil
+	}
+	return p.lockfile.Get(p.Raw).Version, nil
 }

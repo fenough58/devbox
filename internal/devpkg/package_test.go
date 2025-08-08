@@ -1,4 +1,4 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package devpkg
@@ -10,8 +10,9 @@ import (
 	"testing"
 
 	"github.com/samber/lo"
-	"go.jetpack.io/devbox/internal/lock"
-	"go.jetpack.io/devbox/internal/nix"
+	"go.jetify.com/devbox/internal/lock"
+	"go.jetify.com/devbox/internal/nix"
+	"go.jetify.com/devbox/nix/flake"
 )
 
 const nixCommitHash = "hsdafkhsdafhas"
@@ -108,12 +109,13 @@ func (l *lockfile) ProjectDir() string {
 	return l.projectDir
 }
 
-func (l *lockfile) LegacyNixpkgsPath(pkg string) string {
-	return fmt.Sprintf(
-		"github:NixOS/nixpkgs/%s#%s",
-		nixCommitHash,
-		pkg,
-	)
+func (l *lockfile) Stdenv() flake.Ref {
+	return flake.Ref{
+		Type:  flake.TypeGitHub,
+		Owner: "NixOS",
+		Repo:  "nixpkgs",
+		Rev:   nixCommitHash,
+	}
 }
 
 func (l *lockfile) Get(pkg string) *lock.Package {
@@ -128,7 +130,10 @@ func (l *lockfile) Resolve(pkg string) (*lock.Package, error) {
 		return &lock.Package{Resolved: pkg}, nil
 	default:
 		return &lock.Package{
-			Resolved: l.LegacyNixpkgsPath(pkg),
+			Resolved: flake.Installable{
+				Ref:      l.Stdenv(),
+				AttrPath: pkg,
+			}.String(),
 		}, nil
 	}
 }
@@ -178,49 +183,6 @@ func TestHashFromNixPkgsURL(t *testing.T) {
 				result,
 			)
 		}
-	}
-}
-
-func TestStorePathParts(t *testing.T) {
-	testCases := []struct {
-		storePath string
-		expected  storePathParts
-	}{
-		// simple case:
-		{
-			storePath: "/nix/store/cvrn84c1hshv2wcds7n1rhydi6lacqns-gnumake-4.4.1",
-			expected: storePathParts{
-				hash:    "cvrn84c1hshv2wcds7n1rhydi6lacqns",
-				name:    "gnumake",
-				version: "4.4.1",
-			},
-		},
-		// the package name can have dashes:
-		{
-			storePath: "/nix/store/q2xdxsswjqmqcbax81pmazm367s7jzyb-cctools-binutils-darwin-wrapper-973.0.1",
-			expected: storePathParts{
-				hash:    "q2xdxsswjqmqcbax81pmazm367s7jzyb",
-				name:    "cctools-binutils-darwin-wrapper",
-				version: "973.0.1",
-			},
-		},
-		// version is optional. This is an artificial example I constructed
-		{
-			storePath: "/nix/store/gfxwrd5nggc68pjj3g3jhlldim9rpg0p-coreutils",
-			expected: storePathParts{
-				hash: "gfxwrd5nggc68pjj3g3jhlldim9rpg0p",
-				name: "coreutils",
-			},
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.storePath, func(t *testing.T) {
-			parts := newStorePathParts(testCase.storePath)
-			if parts != testCase.expected {
-				t.Errorf("Expected %v, got %v", testCase.expected, parts)
-			}
-		})
 	}
 }
 

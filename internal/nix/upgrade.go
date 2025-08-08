@@ -1,49 +1,30 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package nix
 
 import (
-	"fmt"
+	"context"
 	"os"
-	"os/exec"
 
-	"go.jetpack.io/devbox/internal/redact"
-	"go.jetpack.io/devbox/internal/ux"
-	"go.jetpack.io/devbox/internal/vercheck"
+	"go.jetify.com/devbox/internal/ux"
+	"go.jetify.com/devbox/nix"
 )
 
-func ProfileUpgrade(ProfileDir string, idx int) error {
-	cmd := command(
+func ProfileUpgrade(ProfileDir, indexOrName string) error {
+	return Command(
 		"profile", "upgrade",
 		"--profile", ProfileDir,
-		fmt.Sprintf("%d", idx),
-	)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return redact.Errorf(
-			"error running \"nix profile upgrade\": %s: %w", out, err,
-		)
-	}
-	return nil
+		indexOrName,
+	).Run(context.TODO())
 }
 
 func FlakeUpdate(ProfileDir string) error {
-	version, err := Version()
-	if err != nil {
-		return err
-	}
-	ux.Finfo(os.Stderr, "Running \"nix flake update\"\n")
-	cmd := exec.Command("nix", "flake", "update")
-	if vercheck.SemverCompare(version, "2.19.0") >= 0 {
+	ux.Finfof(os.Stderr, "Running \"nix flake update\"\n")
+	cmd := Command("flake", "update")
+	if nix.AtLeast(Version2_19) {
 		cmd.Args = append(cmd.Args, "--flake")
 	}
 	cmd.Args = append(cmd.Args, ProfileDir)
-	cmd.Args = append(cmd.Args, ExperimentalFlags()...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return redact.Errorf(
-			"error running \"nix flake update\": %s: %w", out, err)
-	}
-	return nil
+	return cmd.Run(context.TODO())
 }

@@ -1,18 +1,17 @@
 package nix
 
-import (
-	"context"
-	"os/exec"
-)
-
-func command(args ...string) *exec.Cmd {
-	return commandContext(context.Background(), args...)
+func init() {
+	Default.ExtraArgs = Args{
+		"--extra-experimental-features", "ca-derivations",
+		"--option", "experimental-features", "nix-command flakes fetch-closure",
+	}
 }
 
-func commandContext(ctx context.Context, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "nix", args...)
-	cmd.Args = append(cmd.Args, ExperimentalFlags()...)
-	return cmd
+func appendArgs[E any](args Args, new []E) Args {
+	for _, elem := range new {
+		args = append(args, elem)
+	}
+	return args
 }
 
 func allowUnfreeEnv(curEnv []string) []string {

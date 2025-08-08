@@ -1,4 +1,4 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package fileutil
@@ -6,6 +6,7 @@ package fileutil
 import (
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -50,6 +51,14 @@ func Exists(path string) bool {
 	return err == nil
 }
 
+func IsDirEmpty(path string) (bool, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false, err
+	}
+	return len(entries) == 0, nil
+}
+
 // FileContains checks if a given file at 'path' contains the 'substring'
 func FileContains(path, substring string) (bool, error) {
 	data, err := os.ReadFile(path)
@@ -69,4 +78,20 @@ func EnsureDirExists(path string, perm fs.FileMode, chmod bool) error {
 		}
 	}
 	return nil
+}
+
+func EnsureAbsolutePaths(paths []string) ([]string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	absPaths := make([]string, len(paths))
+	for i, path := range paths {
+		if filepath.IsAbs(path) {
+			absPaths[i] = path
+		} else {
+			absPaths[i] = filepath.Join(wd, path)
+		}
+	}
+	return absPaths, nil
 }
