@@ -1,4 +1,4 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package midcobra
@@ -10,12 +10,11 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-
-	"go.jetpack.io/devbox"
-	"go.jetpack.io/devbox/internal/boxcli/featureflag"
-	"go.jetpack.io/devbox/internal/envir"
-	"go.jetpack.io/devbox/internal/impl/devopt"
-	"go.jetpack.io/devbox/internal/telemetry"
+	"go.jetify.com/devbox/internal/boxcli/featureflag"
+	"go.jetify.com/devbox/internal/devbox"
+	"go.jetify.com/devbox/internal/devbox/devopt"
+	"go.jetify.com/devbox/internal/envir"
+	"go.jetify.com/devbox/internal/telemetry"
 )
 
 // We collect some light telemetry to be able to improve devbox over time.
@@ -54,6 +53,7 @@ func (m *telemetryMiddleware) postRun(cmd *cobra.Command, args []string, runErr 
 	}
 	meta.Command = subcmd.CommandPath()
 	meta.CommandFlags = flags
+
 	meta.Packages, meta.NixpkgsHash = getPackagesAndCommitHash(cmd)
 	meta.InShell = envir.IsDevboxShellEnabled()
 	meta.InBrowser = envir.IsInBrowser()
@@ -61,6 +61,7 @@ func (m *telemetryMiddleware) postRun(cmd *cobra.Command, args []string, runErr 
 
 	if runErr != nil {
 		telemetry.Error(runErr, meta)
+		// TODO: This is skipping event logging of calls that end in error. We probably want to log them.
 		return
 	}
 	telemetry.Event(telemetry.EventCommandSuccess, meta)
@@ -94,12 +95,13 @@ func getPackagesAndCommitHash(c *cobra.Command) ([]string, string) {
 
 	box, err := devbox.Open(&devopt.Opts{
 		Dir:            path,
-		Writer:         os.Stdout,
+		Stderr:         os.Stderr,
 		IgnoreWarnings: true,
 	})
 	if err != nil {
 		return []string{}, ""
 	}
 
-	return box.Config().Packages.VersionedNames(), box.Config().NixPkgsCommitHash()
+	return box.AllPackageNamesIncludingRemovedTriggerPackages(),
+		box.Lockfile().Stdenv().Rev
 }

@@ -1,4 +1,4 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package s3
@@ -12,18 +12,22 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"go.jetpack.io/devbox/internal/auth"
-	"go.jetpack.io/devbox/internal/pullbox/tar"
-	"go.jetpack.io/devbox/internal/ux"
+	"go.jetify.com/devbox/internal/devbox/devopt"
+	"go.jetify.com/devbox/internal/pullbox/tar"
+	"go.jetify.com/devbox/internal/ux"
 )
 
-func Push(ctx context.Context, user *auth.User, dir, profile string) error {
+func Push(
+	ctx context.Context,
+	creds *devopt.Credentials,
+	dir, profile string,
+) error {
 	archivePath, err := tar.Compress(dir)
 	if err != nil {
 		return err
 	}
 
-	config, err := assumeRole(ctx, user)
+	config, err := assumeRole(ctx, creds)
 	if err != nil {
 		return err
 	}
@@ -33,24 +37,24 @@ func Push(ctx context.Context, user *auth.User, dir, profile string) error {
 	if err != nil {
 		return err
 	}
+	defer file.Close()
 
 	_, err = s3Client.Upload(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucket),
 		Key: aws.String(
 			fmt.Sprintf(
 				"profiles/%s/%s.tar.gz",
-				user.ID(),
+				creds.Sub,
 				profile,
 			),
 		),
 		Body: io.Reader(file),
 	})
-
 	if err != nil {
 		return err
 	}
 
-	ux.Fsuccess(
+	ux.Fsuccessf(
 		os.Stderr,
 		"Profile successfully pushed (profile: %s)\n",
 		profile,
