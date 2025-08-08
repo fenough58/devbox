@@ -1,4 +1,4 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package devbox
@@ -8,6 +8,7 @@ import (
 	_ "embed"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,15 +16,15 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/alessio/shellescape"
+	"al.essio.dev/pkg/shellescape"
 	"github.com/pkg/errors"
-	"go.jetpack.io/devbox/internal/shellgen"
-	"go.jetpack.io/devbox/internal/telemetry"
+	"go.jetify.com/devbox/internal/devbox/devopt"
+	"go.jetify.com/devbox/internal/shellgen"
+	"go.jetify.com/devbox/internal/telemetry"
 
-	"go.jetpack.io/devbox/internal/debug"
-	"go.jetpack.io/devbox/internal/envir"
-	"go.jetpack.io/devbox/internal/nix"
-	"go.jetpack.io/devbox/internal/xdg"
+	"go.jetify.com/devbox/internal/envir"
+	"go.jetify.com/devbox/internal/nix"
+	"go.jetify.com/devbox/internal/xdg"
 )
 
 //go:embed shellrc.tmpl
@@ -68,38 +69,37 @@ type DevboxShell struct {
 
 type ShellOption func(*DevboxShell)
 
-// NewDevboxShell initializes the DevboxShell struct so it can be used to start a shell environment
+// newShell initializes the DevboxShell struct so it can be used to start a shell environment
 // for the devbox project.
-func NewDevboxShell(devbox *Devbox, opts ...ShellOption) (*DevboxShell, error) {
-	shPath, err := shellPath(devbox)
+func (d *Devbox) newShell(envOpts devopt.EnvOptions, opts ...ShellOption) (*DevboxShell, error) {
+	shPath, err := d.shellPath(envOpts)
 	if err != nil {
 		return nil, err
 	}
 	sh := initShellBinaryFields(shPath)
-	sh.devbox = devbox
+	sh.devbox = d
 
 	for _, opt := range opts {
 		opt(sh)
 	}
 
-	debug.Log("Recognized shell as: %s", sh.binPath)
-	debug.Log("Looking for user's shell init file at: %s", sh.userShellrcPath)
+	slog.Debug("detected user shell", "shell", sh.binPath, "initrc", sh.userShellrcPath)
 	return sh, nil
 }
 
 // shellPath returns the path to a shell binary, or error if none found.
-func shellPath(devbox *Devbox) (path string, err error) {
+func (d *Devbox) shellPath(envOpts devopt.EnvOptions) (path string, err error) {
 	defer func() {
 		if err != nil {
 			path = filepath.Clean(path)
 		}
 	}()
 
-	if !devbox.pure {
+	if !envOpts.Pure {
 		// First, check the SHELL environment variable.
 		path = os.Getenv(envir.Shell)
 		if path != "" {
-			debug.Log("Using SHELL env var for shell binary path: %s\n", path)
+			slog.Debug("using SHELL env var for shell binary path", "shell", path)
 			return path, nil
 		}
 	}
@@ -110,7 +110,7 @@ func shellPath(devbox *Devbox) (path string, err error) {
 
 	cmd := exec.Command(
 		"nix", "eval", "--raw",
-		fmt.Sprintf("%s#bashInteractive", nix.FlakeNixpkgs(devbox.cfg.NixPkgsCommitHash())),
+		fmt.Sprintf("%s#bashInteractive", d.Lockfile().Stdenv().String()),
 	)
 	cmd.Args = append(cmd.Args, nix.ExperimentalFlags()...)
 	out, err := cmd.Output()
@@ -224,7 +224,7 @@ func (s *DevboxShell) Run() error {
 		// are in the shellrc file. For now let's fail. Later on, we should remove the vars from the
 		// shellrc file. That said, one of the variables we have to evaluate ($shellHook), so we need
 		// the shellrc file anyway (unless we remove the hook somehow).
-		debug.Log("Failed to write devbox shellrc: %s", err)
+		slog.Error("failed to write devbox shellrc", "err", err)
 		return errors.WithStack(err)
 	}
 
@@ -244,7 +244,7 @@ func (s *DevboxShell) Run() error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	debug.Log("Executing shell %s with args: %v", s.binPath, cmd.Args)
+	slog.Debug("Executing shell %s with args: %v", s.binPath, cmd.Args)
 	err = cmd.Run()
 
 	// If the error is an ExitError, this means the shell started up fine but there was
@@ -343,7 +343,7 @@ func (s *DevboxShell) writeDevboxShellrc() (path string, err error) {
 		return "", fmt.Errorf("execute shellrc template: %v", err)
 	}
 
-	debug.Log("Wrote devbox shellrc to: %s", path)
+	slog.Debug("wrote devbox shellrc", "path", path)
 	return path, nil
 }
 
@@ -371,14 +371,14 @@ func (s *DevboxShell) linkShellStartupFiles(shellSettingsDir string) {
 				continue
 			}
 			if err != nil {
-				debug.Log("os.Stat error for %s is %v", fileOld, err)
+				slog.Debug("os.Stat error for %s is %v", fileOld, err)
 			}
 
 			fileNew := filepath.Join(shellSettingsDir, filename)
 			cmd := exec.Command("cp", fileOld, fileNew)
 			if err := cmd.Run(); err != nil {
 				// This is a best-effort operation. If there's an error then log it for visibility but continue.
-				debug.Log("Error copying zsh setting file from %s to %s: %v", fileOld, fileNew, err)
+				slog.Error("error copying zsh setting file", "from", fileOld, "to", fileNew, "err", err)
 				continue
 			}
 		}

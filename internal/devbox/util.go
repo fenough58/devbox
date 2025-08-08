@@ -1,66 +1,64 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package devbox
 
 import (
 	"context"
+
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"go.jetpack.io/devbox/internal/devpkg"
-	"go.jetpack.io/devbox/internal/nix"
-	"go.jetpack.io/devbox/internal/nix/nixprofile"
 
-	"go.jetpack.io/devbox/internal/xdg"
+	"go.jetify.com/devbox/internal/devbox/devopt"
+	"go.jetify.com/devbox/internal/xdg"
 )
 
-// addDevboxUtilityPackage adds a package to the devbox utility profile.
-// It's used to install applications devbox might need, like process-compose
-// This is an alternative to a global install which would modify a user's
-// environment.
-func (d *Devbox) addDevboxUtilityPackage(ctx context.Context, pkgName string) error {
-	pkg := devpkg.PackageFromStringWithDefaults(pkgName, d.lockfile)
-	installables, err := pkg.Installables()
-	if err != nil {
-		return err
-	}
-	profilePath, err := utilityNixProfilePath()
+const processComposeVersion = "1.64.1"
+
+var utilProjectConfigPath string
+
+func initDevboxUtilityProject(ctx context.Context, stderr io.Writer) error {
+	devboxUtilityProjectPath, err := ensureDevboxUtilityConfig()
 	if err != nil {
 		return err
 	}
 
-	for _, installable := range installables {
-
-		err = nix.ProfileInstall(ctx, &nix.ProfileInstallArgs{
-			Installable: installable,
-			ProfilePath: profilePath,
-			Writer:      d.stderr,
-		})
-		if err != nil {
-			return err
-		}
+	box, err := Open(&devopt.Opts{
+		Dir:    devboxUtilityProjectPath,
+		Stderr: stderr,
+	})
+	if err != nil {
+		return errors.WithStack(err)
 	}
-	return nil
+
+	// Add all utilities here.
+	utilities := []string{
+		"process-compose@" + processComposeVersion,
+	}
+	if err = box.Add(ctx, utilities, devopt.AddOpts{}); err != nil {
+		return err
+	}
+
+	return box.Install(ctx)
 }
 
-func (d *Devbox) removeDevboxUtilityPackage(pkgName string) error {
-	pkg := devpkg.PackageFromStringWithDefaults(pkgName, d.lockfile)
-	installables, err := pkg.Installables()
-	if err != nil {
-		return err
+func ensureDevboxUtilityConfig() (string, error) {
+	if utilProjectConfigPath != "" {
+		return utilProjectConfigPath, nil
 	}
 
-	utilityProfilePath, err := utilityNixProfilePath()
+	path, err := utilityDataPath()
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	profile, err := nixprofile.ProfileListItems(d.stderr, utilityProfilePath)
+	err = EnsureConfig(path)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	for _, installable := range installables {
@@ -76,6 +74,7 @@ func (d *Devbox) removeDevboxUtilityPackage(pkgName string) error {
 		}
 	}
 	return nil
+
 }
 
 func utilityLookPath(binName string) (string, error) {
@@ -101,7 +100,7 @@ func utilityNixProfilePath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(path, "profile"), nil
+	return filepath.Join(path, ".devbox/nix/profile"), nil
 }
 
 func utilityBinPath() (string, error) {
@@ -109,5 +108,6 @@ func utilityBinPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(nixProfilePath, "bin"), nil
+
+	return filepath.Join(nixProfilePath, "default/bin"), nil
 }

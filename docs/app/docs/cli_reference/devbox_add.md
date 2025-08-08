@@ -17,6 +17,9 @@ devbox add glibcLocales --platform x86_64-linux,aarch64-linux
 
 # Exclude busybox from installation on macOS
 devbox add busybox --exclude-platform aarch64-darwin,x86_64-darwin
+
+# Install non-default outputs for a package, such as the promtool CLI
+devbox add prometheus --outputs=out,cli
 ```
 
 ## Options
@@ -26,10 +29,14 @@ devbox add busybox --exclude-platform aarch64-darwin,x86_64-darwin
 | --- | --- |
 | `--allow-insecure` | allows Devbox to install a package that is marked insecure by Nix |
 | `-c, --config string` | path to directory containing a devbox.json config file |
+| `--disable-plugin` | disable the build plugin for a package |
+| `--environment string` | Jetify Secrets environment to use, when supported (e.g.secrets support dev, prod, preview.) (default "dev") |
 | `-e, --exclude-platform strings` | exclude packages from a specific platform. |
 | `-h, --help` | help for add |
-| `-q, --quiet` | quiet mode: Suppresses logs. |
+| `-o, --outputs strings` | specify the outputs to install for the nix package |
 | `-p`, `--platform strings` | install packages only on specific platforms. |
+|  `--patch` | Allow Devbox to patch your packages to fix issues with missing native libraries (auto, always, never) (default "auto")|
+| `-q, --quiet` | quiet mode: Suppresses logs. |
 
 Valid Platforms include:
 
@@ -47,4 +54,3 @@ The platforms below are also supported, but will build packages from source
 ## SEE ALSO
 
 * [devbox](./devbox.md)	 - Instant, easy, predictable shells and containers
-

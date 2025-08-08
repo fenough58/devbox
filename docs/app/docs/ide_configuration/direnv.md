@@ -7,14 +7,6 @@ title: direnv
 ___
 [direnv](https://direnv.net) is an open source environment management tool that allows setting unique environment variables per directory in your file system. This guide covers how to configure direnv to seamlessly work with a devbox project.
 
-:::note
-Devbox 0.5.0 makes changes to how the environment is sourced in order to ensure better compatibility with the user's host shell. This may raise some errors if you generated your `.envrc` file with an older version of devbox.
-
-If you see any errors when activating your `.envrc` file, you will need to run `devbox generate direnv --force`, and then re-run `devbox shell` to apply the latest changes. Be sure to back up your old `.envrc` file before running this command.
-
-Direnv only supports modifying environment variables, so your `init_hook` functionality will be restricted. In particular, aliases, functions, and command completions will not work. If you use these, stick with the manual `devbox shell`.
-:::
-
 ### Prerequisites
 * Install direnv and hook it to your shell. Follow [this guide](https://direnv.net/#basic-installation) if you haven't done it.
 
@@ -28,11 +20,11 @@ If you have direnv installed, Devbox will generate an .envrc file when you run `
 ➜  devbox generate direnv
 Success: generated .envrc file
 Success: ran `direnv allow`
-direnv: loading ~/src/devbox/docs/.envrc
+direnv: loading ~/src/docs/devbox/.envrc
 direnv: using devbox
 ```
 
-This will generate a `.envrc` file in your project directory that contains `devbox.json`. Run `direnv allow` to activate your shell upon directory navigation. Run `direnv revoke` to stop. Changes to `devbox.json` automatically trigger direnv to reset the environment. The generated `.envrc` file doesn't need any further configuration. Just having the generated file along with installed direnv and Devbox, is enough to make direnv integration with Devbox work.
+This will generate a `.envrc` file in your project directory that contains `devbox.json`. Run `direnv allow` to activate your shell upon directory navigation. Run `direnv revoke` to stop. Changes to `devbox.json` automatically trigger direnv to reset the environment. The generated `.envrc` file doesn't need any further configuration. Just having the generated file along with an installed direnv and Devbox is enough to make direnv integrate with Devbox.
 
 
 #### Existing Project
@@ -43,7 +35,7 @@ For an existing project, you can add a `.envrc` file by running `devbox generate
 ➜  devbox generate direnv
 Success: generated .envrc file
 Success: ran `direnv allow`
-direnv: loading ~/src/devbox/docs/.envrc
+direnv: loading ~/src/docs/devbox/.envrc
 direnv: using devbox
 ```
 
@@ -67,7 +59,7 @@ The resulting .envrc will have the following:
 
 eval "$(devbox generate direnv --print-envrc --env MY_CUSTOM_ENV_VAR=my-value)"
 
-# check out https://www.jetpack.io/devbox/docs/ide_configuration/direnv/
+# check out https://www.jetify.com/docs/devbox/ide_configuration/direnv/
 # for more details
 ```
 
@@ -85,7 +77,7 @@ The resulting .envrc will have the following:
 
 eval "$(devbox generate direnv --print-envrc --env-file .env.devbox)"
 
-# check out https://www.jetpack.io/devbox/docs/ide_configuration/direnv/
+# check out https://www.jetify.com/docs/devbox/ide_configuration/direnv/
 # for more details
 ```
 
@@ -121,4 +113,4 @@ To seamlessly integrate VSCode with a direnv environment, follow these steps:
 
 Alternatively, you can use the [direnv VSCode extension](https://marketplace.visualstudio.com/items?itemName=mkhl.direnv) if your VSCode workspace has a .envrc file.
 
-If this guide is missing something, feel free to contribute by opening a [pull request](https://github.com/jetpack-io/devbox/pulls) in Github.
+If this guide is missing something, feel free to contribute by opening a [pull request](https://github.com/jetify-com/devbox/pulls) in Github.
