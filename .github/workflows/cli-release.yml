@@ -27,6 +27,7 @@ jobs:
   tests:
     uses: ./.github/workflows/cli-tests.yaml
 
+
   report-test-failures:
     runs-on: ubuntu-latest
     needs: tests
@@ -107,6 +108,7 @@ jobs:
           tmp_file=$(mktemp)
           echo "${{ env.EDGE_TAG }}" > $tmp_file
           aws s3 cp $tmp_file s3://releases.jetpack.io/devbox/edge/version
+
 
   release:
     runs-on: ubuntu-latest
