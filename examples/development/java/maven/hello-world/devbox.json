@@ -1,5 +1,6 @@
 {
     "packages": [
+
         "maven@latest",
         "jdk@19",
         "binutils@latest"

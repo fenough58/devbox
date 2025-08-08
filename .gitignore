@@ -10,6 +10,7 @@
 # Editors
 .idea
 .vscode
+.zed
 
 # NodeJS
 node_modules
@@ -36,3 +37,15 @@ __pycache__/
 
 # deployment
 .vercel
+.yarn
+
+# Nix
+vendor/
+result
+
+.env
+.env.*
+*.pem
+*.p12
+*.pfx
+*.keystore
