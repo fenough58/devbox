@@ -1,4 +1,4 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package devpkg
@@ -10,8 +10,9 @@ import (
 	"testing"
 
 	"github.com/samber/lo"
-	"go.jetpack.io/devbox/internal/lock"
-	"go.jetpack.io/devbox/internal/nix"
+	"go.jetify.com/devbox/internal/lock"
+	"go.jetify.com/devbox/internal/nix"
+	"go.jetify.com/devbox/nix/flake"
 )
 
 const nixCommitHash = "hsdafkhsdafhas"
@@ -30,28 +31,28 @@ func TestInput(t *testing.T) {
 		{
 			pkg:                "path:path/to/my-flake#my-package",
 			isFlake:            true,
-			name:               "my-flake-773986",
+			name:               "my-flake-9a897d",
 			urlWithoutFragment: "path:" + filepath.Join(projectDir, "path/to/my-flake"),
 			urlForInput:        "path:" + filepath.Join(projectDir, "path/to/my-flake"),
 		},
 		{
 			pkg:                "path:.#my-package",
 			isFlake:            true,
-			name:               "my-project-20698c",
+			name:               "my-project-45b022",
 			urlWithoutFragment: "path:" + projectDir,
 			urlForInput:        "path:" + projectDir,
 		},
 		{
 			pkg:                "path:/tmp/my-project/path/to/my-flake#my-package",
 			isFlake:            true,
-			name:               "my-flake-773986",
+			name:               "my-flake-9a897d",
 			urlWithoutFragment: "path:" + filepath.Join(projectDir, "path/to/my-flake"),
 			urlForInput:        "path:" + filepath.Join(projectDir, "path/to/my-flake"),
 		},
 		{
 			pkg:                "path:/tmp/my-project/path/to/my-flake",
 			isFlake:            true,
-			name:               "my-flake-eaedce",
+			name:               "my-flake-7d03be",
 			urlWithoutFragment: "path:" + filepath.Join(projectDir, "path/to/my-flake"),
 			urlForInput:        "path:" + filepath.Join(projectDir, "path/to/my-flake"),
 		},
@@ -90,9 +91,6 @@ func TestInput(t *testing.T) {
 		if name := i.FlakeInputName(); testCase.name != name {
 			t.Errorf("Name() = %v, want %v", name, testCase.name)
 		}
-		if urlWithoutFragment := i.urlWithoutFragment(); testCase.urlWithoutFragment != urlWithoutFragment {
-			t.Errorf("URLWithoutFragment() = %v, want %v", urlWithoutFragment, testCase.urlWithoutFragment)
-		}
 		if urlForInput := i.URLForFlakeInput(); testCase.urlForInput != urlForInput {
 			t.Errorf("URLForFlakeInput() = %v, want %v", urlForInput, testCase.urlForInput)
 		}
@@ -100,7 +98,7 @@ func TestInput(t *testing.T) {
 }
 
 type testInput struct {
-	Package
+	*Package
 }
 
 type lockfile struct {
@@ -111,12 +109,13 @@ func (l *lockfile) ProjectDir() string {
 	return l.projectDir
 }
 
-func (l *lockfile) LegacyNixpkgsPath(pkg string) string {
-	return fmt.Sprintf(
-		"github:NixOS/nixpkgs/%s#%s",
-		nixCommitHash,
-		pkg,
-	)
+func (l *lockfile) Stdenv() flake.Ref {
+	return flake.Ref{
+		Type:  flake.TypeGitHub,
+		Owner: "NixOS",
+		Repo:  "nixpkgs",
+		Rev:   nixCommitHash,
+	}
 }
 
 func (l *lockfile) Get(pkg string) *lock.Package {
@@ -131,13 +130,16 @@ func (l *lockfile) Resolve(pkg string) (*lock.Package, error) {
 		return &lock.Package{Resolved: pkg}, nil
 	default:
 		return &lock.Package{
-			Resolved: l.LegacyNixpkgsPath(pkg),
+			Resolved: flake.Installable{
+				Ref:      l.Stdenv(),
+				AttrPath: pkg,
+			}.String(),
 		}, nil
 	}
 }
 
 func testInputFromString(s, projectDir string) *testInput {
-	return lo.ToPtr(testInput{Package: *PackageFromString(s, &lockfile{projectDir})})
+	return lo.ToPtr(testInput{Package: PackageFromStringWithDefaults(s, &lockfile{projectDir})})
 }
 
 func TestHashFromNixPkgsURL(t *testing.T) {
@@ -184,44 +186,27 @@ func TestHashFromNixPkgsURL(t *testing.T) {
 	}
 }
 
-func TestStorePathParts(t *testing.T) {
-	testCases := []struct {
-		storePath string
-		expected  storePathParts
+func TestCanonicalName(t *testing.T) {
+	tests := []struct {
+		pkgName      string
+		expectedName string
 	}{
-		// simple case:
-		{
-			storePath: "/nix/store/cvrn84c1hshv2wcds7n1rhydi6lacqns-gnumake-4.4.1",
-			expected: storePathParts{
-				hash:    "cvrn84c1hshv2wcds7n1rhydi6lacqns",
-				name:    "gnumake",
-				version: "4.4.1",
-			},
-		},
-		// the package name can have dashes:
-		{
-			storePath: "/nix/store/q2xdxsswjqmqcbax81pmazm367s7jzyb-cctools-binutils-darwin-wrapper-973.0.1",
-			expected: storePathParts{
-				hash:    "q2xdxsswjqmqcbax81pmazm367s7jzyb",
-				name:    "cctools-binutils-darwin-wrapper",
-				version: "973.0.1",
-			},
-		},
-		// version is optional. This is an artificial example I constructed
-		{
-			storePath: "/nix/store/gfxwrd5nggc68pjj3g3jhlldim9rpg0p-coreutils",
-			expected: storePathParts{
-				hash: "gfxwrd5nggc68pjj3g3jhlldim9rpg0p",
-				name: "coreutils",
-			},
-		},
+		{"go", "go"},
+		{"go@latest", "go"},
+		{"go@1.21", "go"},
+		{"runx:golangci/golangci-lint@latest", "runx:golangci/golangci-lint"},
+		{"runx:golangci/golangci-lint@v0.0.2", "runx:golangci/golangci-lint"},
+		{"runx:golangci/golangci-lint", "runx:golangci/golangci-lint"},
+		{"github:NixOS/nixpkgs/12345", ""},
+		{"path:/to/my/file", ""},
 	}
 
-	for _, testCase := range testCases {
-		t.Run(testCase.storePath, func(t *testing.T) {
-			parts := newStorePathParts(testCase.storePath)
-			if parts != testCase.expected {
-				t.Errorf("Expected %v, got %v", testCase.expected, parts)
+	for _, tt := range tests {
+		t.Run(tt.pkgName, func(t *testing.T) {
+			pkg := PackageFromStringWithDefaults(tt.pkgName, &lockfile{})
+			got := pkg.CanonicalName()
+			if got != tt.expectedName {
+				t.Errorf("Expected canonical name %q, but got %q", tt.expectedName, got)
 			}
 		})
 	}

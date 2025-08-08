@@ -6,7 +6,7 @@ In addition to installing the JDK, you'll need to install either the Maven or Gr
 
 In both cases, you'll want to first activate `devbox shell` before generating your Maven or Gradle projects, so that the tools use the right version of the JDK for creating your project.
 
-[**Example Repo**](https://github.com/jetpack-io/devbox/tree/main/examples/development/java)
+[**Example Repo**](https://github.com/jetify-com/devbox/tree/main/examples/development/java)
 
 ## Adding the JDK to your project
 
@@ -26,9 +26,8 @@ Other distributions of the JDK (such as OracleJDK and Eclipse Temurin) are avail
 
 ## Gradle
 
-[**Example Repo**](https://github.com/jetpack-io/devbox/tree/main/examples/development/java/gradle/hello-world)
+[**Example Repo**](https://github.com/jetify-com/devbox/tree/main/examples/development/java/gradle/hello-world)
 
-[![Open In Devbox.sh](https://jetpack.io/img/devbox/open-in-devbox.svg)](https://devbox.sh/open/templates/java-gradle)
 
 Gradle is a popular, multi-language build tool that is commonly used with JVM projects. To setup an example project using Gradle, follow the instructions below:
 
@@ -53,10 +52,10 @@ Gradle is a popular, multi-language build tool that is commonly used with JVM pr
         }
         ```
     - While in devbox shell, run `echo $JAVA_HOME` and take note of its value.
-    - Create a `gradle.properties` file like below and put value of `$JAVA_HOME` instead of <JAVA_HOME_VALUE> in the file.
+    - Create a `gradle.properties` file like below and put value of `$JAVA_HOME` instead of \<JAVA_HOME_VALUE\> in the file.
       ```gradle
       /* gradle.properties */
-      org.gradle.java.home=<JAVA_HOME_VALUE>
+      org.gradle.java.home=\<JAVA_HOME_VALUE\>
       ```
 4. `gradle build` should compile the package and create a `build/` directory that contains an executable jar file.
 5. `gradle run` should print "Hello World!".
@@ -79,9 +78,8 @@ An example `devbox.json` would look like the following:
 
 ## Maven
 
-[**Example Repo**](https://github.com/jetpack-io/devbox/tree/main/examples/development/java/maven/hello-world)
+[**Example Repo**](https://github.com/jetify-com/devbox/tree/main/examples/development/java/maven/hello-world)
 
-[![Open In Devbox.sh](https://jetpack.io/img/devbox/open-in-devbox.svg)](https://devbox.sh/open/templates/java-maven)
 
 Maven is an all-in-one CI-CD tool for building testing and deploying Java projects. To setup a sample project with Java and Maven in devbox follow the steps below:
 
