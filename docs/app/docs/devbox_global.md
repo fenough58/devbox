@@ -50,25 +50,11 @@ devbox global list
 To remove a global package, use:
 
 ```bash
-devbox global remove ripgrep
+devbox global rm ripgrep
 
 # Output:
-ripgrep was removed
+removing 'github:NixOS/nixpkgs/ripgrep'
 ```
-
-## Using Fleek with Devbox Global
-
-[Fleek](https://getfleek.dev/) provides a nicely tuned set of packages and configuration for common tools that is compatible with Devbox Global. Configurations are provided at different [levels of bling](https://getfleek.dev/docs/bling), with higher levels adding more packages and opinionated configuration.
-
-To install a Fleek profile, you can use `devbox global pull <fleek-url>`, where the Fleek URL indicates the profile you want to install. For example, to install the `high` bling profile, you can run:
-
-```bash
-devbox global pull https://devbox.getfleek.dev/high
-```
-
-Fleek profiles also provide a few convenience scripts to automate setting up your profile. You can view the full list of scripts using `devbox global run` with no arguments
-
-For more information, see the [Fleek for Devbox Docs](https://getfleek.dev/docs/devbox)
 
 ## Using Global Packages in your Host Shell
 
@@ -121,7 +107,7 @@ Your global `devbox.json` and any other files in the Git remote will be stored i
 * **[Getting Started](quickstart.mdx):** Learn how to install Devbox and create your first Devbox Shell.
 * **[Devbox Scripts](guides/scripts.md):** Automate setup steps and configuration for your shell using Devbox Scripts.
 * **[Configuration Guide](configuration.md):** Learn how to configure your shell and dev environment with `devbox.json`.
-* **[Browse Examples](https://github.com/jetpack-io/devbox-examples):** You can see how to create a development environment for your favorite tools or languages by browsing the Devbox Examples repo.
+* **[Browse Examples](https://github.com/jetify-com/devbox-examples):** You can see how to create a development environment for your favorite tools or languages by browsing the Devbox Examples repo.
 * **[Using Flakes with Devbox](guides/using_flakes.md):** Learn how to install packages from Nix Flakes.
 
 ### Use Devbox with your IDE
@@ -131,5 +117,5 @@ Your global `devbox.json` and any other files in the Git remote will be stored i
 
 ### Get Involved
 
-* **[Join our Discord Community](https://discord.gg/jetpack-io):** Chat with the development team and our growing community of Devbox users.
-* **[Visit us on Github](https://github.com/jetpack-io/devbox):** File issues and provide feedback, or even open a PR to contribute to Devbox or our Docs.
+* **[Join our Discord Community](https://discord.gg/jetify):** Chat with the development team and our growing community of Devbox users.
+* **[Visit us on Github](https://github.com/jetify-com/devbox):** File issues and provide feedback, or even open a PR to contribute to Devbox or our Docs.

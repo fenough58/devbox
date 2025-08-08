@@ -1,11 +1,13 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package envir
 
 import (
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 )
 
 func IsDevboxCloud() bool {
@@ -21,11 +23,6 @@ func DoNotTrack() bool {
 	// https://consoledonottrack.com/
 	doNotTrack, _ := strconv.ParseBool(os.Getenv("DO_NOT_TRACK"))
 	return doNotTrack
-}
-
-func IsDevboxDebugEnabled() bool {
-	enabled, _ := strconv.ParseBool(os.Getenv(DevboxDebug))
-	return enabled
 }
 
 func IsInBrowser() bool { // TODO: a better name
@@ -47,4 +44,32 @@ func GetValueOrDefault(key, def string) string {
 	}
 
 	return val
+}
+
+// MapToPairs creates a slice of environment variable "key=value" pairs from a
+// map.
+func MapToPairs(m map[string]string) []string {
+	pairs := make([]string, len(m))
+	i := 0
+	for k, v := range m {
+		pairs[i] = k + "=" + v
+		i++
+	}
+	slices.Sort(pairs) // for reproducibility
+	return pairs
+}
+
+// PairsToMap creates a map from a slice of "key=value" environment variable
+// pairs. Note that maps are not ordered, which can affect the final variable
+// values when pairs contains duplicate keys.
+func PairsToMap(pairs []string) map[string]string {
+	vars := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		k, v, ok := strings.Cut(p, "=")
+		if !ok {
+			continue
+		}
+		vars[k] = v
+	}
+	return vars
 }

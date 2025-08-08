@@ -1,4 +1,4 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package telemetry
@@ -17,7 +17,7 @@ import (
 	"github.com/getsentry/sentry-go"
 	"github.com/pkg/errors"
 
-	"go.jetpack.io/devbox/internal/build"
+	"go.jetify.com/devbox/internal/build"
 )
 
 var ExecutionID = newEventID()
@@ -51,8 +51,8 @@ func initSentryClient(appName string) bool {
 	return err == nil
 }
 
-func newSentryException(err error) []sentry.Exception {
-	errMsg := err.Error()
+func newSentryException(errToLog error) []sentry.Exception {
+	errMsg := errToLog.Error()
 	binPkg := ""
 	modPath := ""
 	if build, ok := debug.ReadBuildInfo(); ok {
@@ -66,12 +66,12 @@ func newSentryException(err error) []sentry.Exception {
 	var stFunc func() []runtime.Frame
 	errType := "Generic Error"
 	for {
-		if t := exportedErrType(err); t != "" {
+		if t := exportedErrType(errToLog); t != "" {
 			errType = t
 		}
 
 		//nolint:errorlint
-		switch stackErr := err.(type) {
+		switch stackErr := errToLog.(type) {
 		// If the error implements the StackTrace method in the redact package, then
 		// prefer that. The Sentry SDK gets some things wrong when guessing how
 		// to extract the stack trace.
@@ -98,11 +98,11 @@ func newSentryException(err error) []sentry.Exception {
 				return frames
 			}
 		}
-		uw := errors.Unwrap(err)
+		uw := errors.Unwrap(errToLog)
 		if uw == nil {
 			break
 		}
-		err = uw
+		errToLog = uw
 	}
 	ex := []sentry.Exception{{Type: errType, Value: errMsg}}
 	if stFunc != nil {
@@ -167,19 +167,19 @@ func exportedErrType(err error) string {
 
 // splitPkgFunc splits a fully-qualified function or method name into its
 // package path and base name components.
-func splitPkgFunc(name string) (pkgPath string, funcName string) {
+func splitPkgFunc(name string) (pkgPath, funcName string) {
 	// Using the following fully-qualified function name as an example:
-	// go.jetpack.io/devbox/internal/impl.(*Devbox).RunScript
+	// go.jetify.com/devbox/internal/devbox.(*Devbox).RunScript
 
-	// dir = go.jetpack.io/devbox/internal/
-	// base = impl.(*Devbox).RunScript
+	// dir = go.jetify.com/devbox/internal/
+	// base = devbox.(*Devbox).RunScript
 	dir, base := path.Split(name)
 
-	// pkgName = impl
+	// pkgName = devbox
 	// fn = (*Devbox).RunScript
 	pkgName, fn, _ := strings.Cut(base, ".")
 
-	// pkgPath = go.jetpack.io/devbox/internal/impl
+	// pkgPath = go.jetify.com/devbox/internal/devbox
 	// funcName = (*Devbox).RunScript
 	return dir + pkgName, fn
 }

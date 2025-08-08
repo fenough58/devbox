@@ -1,15 +1,20 @@
 package devpkg
 
 import (
+	"context"
 	"strings"
 
-	"go.jetpack.io/devbox/internal/boxcli/usererr"
-	"go.jetpack.io/devbox/internal/nix"
+	"go.jetify.com/devbox/internal/boxcli/usererr"
+	"go.jetify.com/devbox/internal/nix"
 )
 
-func (p *Package) ValidateExists() (bool, error) {
+func (p *Package) ValidateExists(ctx context.Context) (bool, error) {
+	if p.IsRunX() {
+		_, err := p.lockfile.Resolve(p.Raw)
+		return err == nil, err
+	}
 	if p.isVersioned() && p.version() == "" {
-		return false, usererr.New("No version specified for %q.", p.Path)
+		return false, usererr.New("No version specified for %q.", p.Raw)
 	}
 
 	inCache, err := p.IsInBinaryCache()
