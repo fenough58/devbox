@@ -1,20 +1,22 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package boxcli
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
+	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
-	"go.jetpack.io/devbox/internal/boxcli/usererr"
-	"go.jetpack.io/devbox/internal/envir"
-	"go.jetpack.io/pkg/sandbox/auth"
-	"go.jetpack.io/pkg/sandbox/auth/session"
+	"go.jetify.com/devbox/internal/build"
+	"go.jetify.com/devbox/internal/devbox"
+	"go.jetify.com/devbox/internal/devbox/devopt"
+	"go.jetify.com/devbox/internal/devbox/providers/identity"
+	"go.jetify.com/devbox/internal/ux"
+	"go.jetify.com/pkg/api"
 )
-
-var issuer = envir.GetValueOrDefault("DEVBOX_AUTH_ISSUER", "https://accounts.jetpack.io")
-var clientID = envir.GetValueOrDefault("DEVBOX_AUTH_CLIENT_ID", "ff3d4c9c-1ac8-42d9-bef1-f5218bb1a9f6")
 
 func authCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -24,8 +26,8 @@ func authCmd() *cobra.Command {
 
 	cmd.AddCommand(loginCmd())
 	cmd.AddCommand(logoutCmd())
-	cmd.AddCommand(refreshCmd())
 	cmd.AddCommand(whoAmICmd())
+	cmd.AddCommand(authNewTokenCommand())
 
 	return cmd
 }
@@ -36,7 +38,7 @@ func loginCmd() *cobra.Command {
 		Short: "Login to devbox",
 		Args:  cobra.ExactArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := auth.NewClient(issuer, clientID)
+			c, err := identity.AuthClient(identity.AuthRedirectDefault)
 			if err != nil {
 				return err
 			}
@@ -44,7 +46,9 @@ func loginCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.ErrOrStderr(), "Logged in as : %s\n", t.IDClaims().Email)
+			// TODO: all uses of IDClaims() are broken when using a static
+			// non-expiring token (i.e. API_TOKEN)
+			fmt.Fprintf(cmd.ErrOrStderr(), "Logged in as: %s\n", t.IDClaims().Email)
 			return nil
 		},
 	}
@@ -55,10 +59,10 @@ func loginCmd() *cobra.Command {
 func logoutCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "logout",
-		Short: "logout from devbox",
+		Short: "Logout from devbox",
 		Args:  cobra.ExactArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := auth.NewClient(issuer, clientID)
+			c, err := identity.AuthClient(identity.AuthRedirectDefault)
 			if err != nil {
 				return err
 			}
@@ -73,67 +77,91 @@ func logoutCmd() *cobra.Command {
 	return cmd
 }
 
-// This is for debugging purposes only. Hidden.
-func refreshCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:    "refresh",
-		Short:  "Refresh credentials",
-		Args:   cobra.ExactArgs(0),
-		Hidden: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := auth.NewClient(issuer, clientID)
-			if err != nil {
-				return err
-			}
-			_ = c.RefreshSession()
-			fmt.Fprintln(cmd.OutOrStdout(), "Refreshed successfully")
-			return nil
-		},
-	}
-
-	return cmd
+type whoAmICmdFlags struct {
+	showTokens bool
 }
 
 func whoAmICmd() *cobra.Command {
+	flags := &whoAmICmdFlags{}
 	cmd := &cobra.Command{
 		Use:   "whoami",
 		Short: "Show the current user",
 		Args:  cobra.ExactArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			tok, err := genSession()
+			wd, err := os.Getwd()
 			if err != nil {
 				return err
-			} else if tok == nil {
-				return usererr.New("not logged in")
 			}
-			idClaims := tok.IDClaims()
-
-			fmt.Fprintf(cmd.OutOrStdout(), "Logged in\n")
-			fmt.Fprintf(cmd.OutOrStdout(), "User ID: %s\n", idClaims.Subject)
-
-			if idClaims.OrgID != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "Org ID: %s\n", idClaims.OrgID)
+			box, err := devbox.Open(&devopt.Opts{Dir: wd, Stderr: cmd.ErrOrStderr()})
+			if err != nil {
+				return err
 			}
-
-			if idClaims.Email != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "Email: %s\n", idClaims.Email)
+			// TODO: WhoAmI should be a function in opensource/pkg/auth that takes in a session.
+			// That way we don't need to handle failed refresh token errors here.
+			err = box.UninitializedSecrets(cmd.Context()).
+				WhoAmI(cmd.Context(), cmd.OutOrStdout(), flags.showTokens)
+			if identity.IsRefreshTokenError(err) {
+				ux.Fwarningf(cmd.ErrOrStderr(), "Your session is expired. Please login again.\n")
+				return loginCmd().RunE(cmd, args)
 			}
-
-			if idClaims.Name != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "Name: %s\n", idClaims.Name)
-			}
-
-			return nil
+			return err
 		},
 	}
+
+	cmd.Flags().BoolVar(
+		&flags.showTokens,
+		"show-tokens",
+		false,
+		"Show the access, id, and refresh tokens",
+	)
 
 	return cmd
 }
 
-func genSession() (*session.Token, error) {
-	c, err := auth.NewClient(issuer, clientID)
-	if err != nil {
-		return nil, err
+func authNewTokenCommand() *cobra.Command {
+	tokensCmd := &cobra.Command{
+		Use:   "tokens",
+		Short: "Manage devbox auth tokens",
 	}
-	return c.GetSession(), nil
+
+	newCmd := &cobra.Command{
+		Use:   "new",
+		Short: "Create a new token",
+		Args:  cobra.ExactArgs(0),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			token, err := identity.GenSession(ctx)
+			if err != nil {
+				return err
+			}
+			client := api.NewClient(ctx, build.JetpackAPIHost(), token)
+			pat, err := client.CreateToken(ctx)
+			if err != nil {
+				// This is a hack because errors are not returning with correct code.
+				// Once that is fixed, we can switch to use *connect.Error Code() instead.
+				if strings.Contains(err.Error(), "permission_denied") {
+					ux.Ferrorf(
+						cmd.ErrOrStderr(),
+						"You do not have permission to create a token. Please contact your"+
+							" administrator.",
+					)
+					return nil
+				}
+				return err
+			}
+			ux.Fsuccessf(cmd.OutOrStdout(), "Token created.\n\n")
+			table := tablewriter.NewWriter(cmd.OutOrStdout())
+			table.SetRowLine(true)
+			table.AppendBulk([][]string{
+				{"Token ID", pat.GetToken().GetId()},
+				{"Secret", pat.GetToken().GetSecret()},
+			})
+			table.Render()
+			return nil
+		},
+	}
+
+	tokensCmd.AddCommand(newCmd)
+
+	return tokensCmd
 }

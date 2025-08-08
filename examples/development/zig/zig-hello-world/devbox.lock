@@ -1,23 +1,67 @@
 {
   "lockfile_version": "1",
   "packages": {
-    "zig@0.10": {
-      "last_modified": "2023-08-09T23:50:43Z",
-      "resolved": "github:NixOS/nixpkgs/3d6ebeb283be256f008541ce2b089eb5fb0e4e01#zig",
+    "zig@latest": {
+      "last_modified": "2024-02-10T18:15:24Z",
+      "resolved": "github:NixOS/nixpkgs/10b813040df67c4039086db0f6eaf65c536886c6#zig",
       "source": "devbox-search",
-      "version": "0.10.1",
+      "version": "0.11.0",
       "systems": {
         "aarch64-darwin": {
-          "store_path": "/nix/store/wdl373cbxsbsgkbrhcm8rsjxf1nyzda5-zig-0.10.1"
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/jdcras9fpriayy669zl3c4wbqr5gvspz-zig-0.11.0",
+              "default": true
+            },
+            {
+              "name": "doc",
+              "path": "/nix/store/c6c7clbl1fbwax4bj9lqrw0yx4fmdbqr-zig-0.11.0-doc"
+            }
+          ],
+          "store_path": "/nix/store/jdcras9fpriayy669zl3c4wbqr5gvspz-zig-0.11.0"
         },
         "aarch64-linux": {
-          "store_path": "/nix/store/kffa3f61affmlms4r8xmmrq7ksz7lx7k-zig-0.10.1"
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/qs3v2dp6izd6b66bhhjcj7c96k0bvznl-zig-0.11.0",
+              "default": true
+            },
+            {
+              "name": "doc",
+              "path": "/nix/store/fik8lifgkdd3pjwzrywggv2rxys6pn0f-zig-0.11.0-doc"
+            }
+          ],
+          "store_path": "/nix/store/qs3v2dp6izd6b66bhhjcj7c96k0bvznl-zig-0.11.0"
         },
         "x86_64-darwin": {
-          "store_path": "/nix/store/0a267lbl7hy45rlg5i9azxb3s5jggnkm-zig-0.10.1"
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/dh721al3vdr3akb6zsjykjr6qv65fqwj-zig-0.11.0",
+              "default": true
+            },
+            {
+              "name": "doc",
+              "path": "/nix/store/qs0vgs443r4f0d6wfp54j3yzsx71gaf6-zig-0.11.0-doc"
+            }
+          ],
+          "store_path": "/nix/store/dh721al3vdr3akb6zsjykjr6qv65fqwj-zig-0.11.0"
         },
         "x86_64-linux": {
-          "store_path": "/nix/store/rg6yk06fhxbnq9xm32v1ccfrdilwhx17-zig-0.10.1"
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/s7h19d99gn1arvykjvzhkx57qa4bvaj9-zig-0.11.0",
+              "default": true
+            },
+            {
+              "name": "doc",
+              "path": "/nix/store/pc7jbvwkn560nqakaqf01b2rm9fgwppj-zig-0.11.0-doc"
+            }
+          ],
+          "store_path": "/nix/store/s7h19d99gn1arvykjvzhkx57qa4bvaj9-zig-0.11.0"
         }
       }
     }

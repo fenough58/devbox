@@ -1,4 +1,4 @@
-// Copyright 2023 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package boxcli
@@ -6,10 +6,12 @@ package boxcli
 import (
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"go.jetify.com/pkg/auth"
 
-	"go.jetpack.io/devbox"
-	"go.jetpack.io/devbox/internal/goutil"
-	"go.jetpack.io/devbox/internal/impl/devopt"
+	"go.jetify.com/devbox/internal/devbox"
+	"go.jetify.com/devbox/internal/devbox/devopt"
+	"go.jetify.com/devbox/internal/devbox/providers/identity"
+	"go.jetify.com/devbox/internal/goutil"
 )
 
 type pushCmdFlags struct {
@@ -20,7 +22,7 @@ func pushCmd() *cobra.Command {
 	flags := pushCmdFlags{}
 	cmd := &cobra.Command{
 		Use: "push <git-repo>",
-		Short: "Push a [global] config. Leave empty to use jetpack cloud. Can " +
+		Short: "Push a [global] config. Leave empty to use jetify cloud. Can " +
 			"be a git repo for self storage.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -35,21 +37,22 @@ func pushCmd() *cobra.Command {
 
 func pushCmdFunc(cmd *cobra.Command, url string, flags pushCmdFlags) error {
 	box, err := devbox.Open(&devopt.Opts{
-		Dir:    flags.config.path,
-		Writer: cmd.ErrOrStderr(),
+		Dir:         flags.config.path,
+		Environment: flags.config.environment,
+		Stderr:      cmd.ErrOrStderr(),
 	})
 	if err != nil {
 		return errors.WithStack(err)
 	}
-	t, err := genSession()
+	t, err := identity.GenSession(cmd.Context())
 	var creds devopt.Credentials
-	if err != nil {
+	if err != nil && !errors.Is(err, auth.ErrNotLoggedIn) {
 		return errors.WithStack(err)
-	} else if t != nil {
+	} else if t != nil && err == nil {
 		creds = devopt.Credentials{
 			IDToken: t.IDToken,
 			Email:   t.IDClaims().Email,
-			Sub:     t.IDClaims().ID,
+			Sub:     t.IDClaims().Subject,
 		}
 	}
 	return box.Push(cmd.Context(), devopt.PullboxOpts{
