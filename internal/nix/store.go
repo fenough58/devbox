@@ -16,6 +16,11 @@ import (
 	"golang.org/x/exp/maps"
 )
 
+// Savil here.
+func StorePath(hash, name, version string) string {
+	storeDirParts := []string{hash, name}
+	if version != "" {
+		storeDirParts = append(storeDirParts, version)
 func StorePathFromHashPart(ctx context.Context, hash, storeAddr string) (string, error) {
 	cmd := Command("store", "path-from-hash-part", "--store", storeAddr, hash)
 	resultBytes, err := cmd.Output(ctx)
