@@ -128,12 +128,12 @@ jobs:
         # the devbox.json tests. We can require the other tests to complete before
         # merging, while keeping the others as an additional non-required signal
 
-        run-project-tests: ["project-tests-only", "project-tests-off"]
+        run-devbox-json-tests: [true]
         # Run tests on:
         # 1. the oldest supported nix version (which is 2.9.0? But determinate-systems installer has 2.12.0)
-        # 2. nix 2.19.2: version before nix profile changes
-        # 2. latest nix version (note, 2.20.1 introduced a new profile change)
-        nix-version: ["2.12.0", "2.19.2", "2.20.1"]
+        # 2. nix version 2.17.0 which introduces a new code path that minimizes nixpkgs downloads.
+        # 3. latest nix version (currently, that is 2.17.0, so omitted)
+        nix-version: ["2.17.0"]
 
         exclude:
           # Only runs tests on macos if explicitly requested, or on a schedule
@@ -141,6 +141,7 @@ jobs:
             
 
     runs-on: ${{ matrix.os }}
+
     timeout-minutes: 60
     env:
       # For devbox.json tests, we default to non-debug mode since the debug output is less useful than for unit testscripts.
@@ -168,9 +169,18 @@ jobs:
       - name: Install devbox
         uses: jetify-com/devbox-install-action@v0.13.0
         with:
-          enable-cache: true
-      - name: Run fast tests
-        if: matrix.run-project-tests == 'project-tests-off'
+          logger: pretty
+          extra-conf: experimental-features = ca-derivations fetch-closure
+          nix-package-url: https://releases.nixos.org/nix/nix-${{ matrix.nix-version }}/nix-${{ matrix.nix-version }}-${{ runner.arch == 'X64' && 'x86_64' || 'aarch64' }}-${{ runner.os == 'macOS' && 'darwin' || 'linux' }}.tar.xz
+      - name: Run tests
+        env:
+          # For devbox.json tests, we default to non-debug mode since the debug output is less useful than for unit testscripts.
+          # But we allow overriding via inputs.example-debug
+          DEVBOX_DEBUG: ${{ (!matrix.run-devbox-json-tests || inputs.example-debug) && '1' || '0' }}
+          DEVBOX_RUN_DEVBOX_JSON_TESTS: ${{ matrix.run-devbox-json-tests }}
+          # Used in `go test -timeout` flag. Needs a value that time.ParseDuration can parse.
+          DEVBOX_GOLANG_TEST_TIMEOUT: "${{ (github.ref == 'refs/heads/main' || inputs.run-mac-tests) && '35m' || '40m' }}"
+
         run: |
           echo "::group::Nix version"
           nix --version
@@ -224,8 +234,9 @@ jobs:
     strategy:
       matrix:
 
-        os: [ubuntu-latest, macos-13]
-        nix-version: [2.15.1, 2.16.1, 2.17.0, 2.18.0, 2.19.2, 2.24.7]
+        os: [ubuntu-latest, macos-latest]
+        nix-version: [2.17.0]
+
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
