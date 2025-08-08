@@ -1,7 +1,7 @@
 {
   "name": "apache",
-  "version": "0.0.1",
-  "readme": "If you with to edit the config file, please copy it out of the .devbox directory.",
+  "version": "0.0.2",
+  "description": "If you with to edit the config file, please copy it out of the .devbox directory.",
   "env": {
     "HTTPD_DEVBOX_CONFIG_DIR": "{{ .DevboxProjectDir }}",
     "HTTPD_CONFDIR": "{{ .DevboxDir }}",
@@ -13,12 +13,5 @@
     "{{ .DevboxDir }}/httpd.conf": "apache/httpd.conf",
     "{{ .DevboxDirRoot }}/web/index.html": "web/index.html",
     "{{ .Virtenv }}/process-compose.yaml": "apache/process-compose.yaml"
-  },
-  "services": {
-    "apache": {
-      "port": "$HTTPD_PORT",
-      "start": "apachectl start -f $HTTPD_CONFDIR/httpd.conf",
-      "stop": "apachectl stop -f $HTTPD_CONFDIR/httpd.conf"
-    }
   }
 }

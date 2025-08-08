@@ -1,4 +1,4 @@
-// Copyright 2022 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package boxcli
@@ -10,10 +10,12 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
+
+	"go.jetify.com/devbox/internal/fileutil"
 )
 
 func genDocsCmd() *cobra.Command {
-	var genDocsCmd = &cobra.Command{
+	genDocsCmd := &cobra.Command{
 		Use:   "gen-docs <path>",
 		Short: "[Internal] Generate documentation for the CLI",
 		Long: "[Internal] Generates the documentation for the CLI's Cobra commands. " +
@@ -30,15 +32,8 @@ func genDocsCmd() *cobra.Command {
 			// We clear out the existing directory so that the doc-pages for
 			// commands that have been deleted in the CLI will also be removed
 			// after we re-generate the docs below
-			err = os.RemoveAll(docsPath)
-			if err != nil {
-				return errors.WithStack(err)
-			}
-
-			// Ensure the directory exists
-			err = os.MkdirAll(docsPath, 0755)
-			if err != nil {
-				return errors.WithStack(err)
+			if err := fileutil.ClearDir(docsPath); err != nil {
+				return err
 			}
 
 			rootCmd := cmd

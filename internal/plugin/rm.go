@@ -1,6 +1,10 @@
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
+// Use of this source code is governed by the license in the LICENSE file.
+
 package plugin
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -17,8 +21,8 @@ func Remove(projectDir string, pkgs []string) error {
 }
 
 func RemoveInvalidSymlinks(projectDir string) error {
-	binPath := filepath.Join(projectDir, VirtenvPath, "bin")
-	if _, err := os.Stat(binPath); errors.Is(err, os.ErrNotExist) {
+	binPath := filepath.Join(projectDir, VirtenvBinPath)
+	if _, err := os.Stat(binPath); errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	dirEntry, err := os.ReadDir(binPath)
@@ -26,9 +30,9 @@ func RemoveInvalidSymlinks(projectDir string) error {
 		return errors.WithStack(err)
 	}
 	for _, entry := range dirEntry {
-		_, err := os.Stat(filepath.Join(projectDir, VirtenvPath, "bin", entry.Name()))
-		if errors.Is(err, os.ErrNotExist) {
-			os.Remove(filepath.Join(projectDir, VirtenvPath, "bin", entry.Name()))
+		_, err := os.Stat(filepath.Join(projectDir, VirtenvBinPath, entry.Name()))
+		if errors.Is(err, fs.ErrNotExist) {
+			os.Remove(filepath.Join(projectDir, VirtenvBinPath, entry.Name()))
 		}
 	}
 	return nil

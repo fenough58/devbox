@@ -1,7 +1,9 @@
 {
     "packages": [
-        "maven",
-        "jdk"
+
+        "maven@latest",
+        "jdk@19",
+        "binutils@latest"
     ],
     "shell": {
         "init_hook": null,

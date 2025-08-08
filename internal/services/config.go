@@ -1,3 +1,6 @@
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
+// Use of this source code is governed by the license in the LICENSE file.
+
 package services
 
 import (
@@ -7,28 +10,31 @@ import (
 
 	"github.com/f1bonacc1/process-compose/src/types"
 	"github.com/pkg/errors"
-	"go.jetpack.io/devbox/internal/cuecfg"
+	"gopkg.in/yaml.v3"
+
+	"go.jetify.com/devbox/internal/cuecfg"
 )
 
-func FromProcessComposeYaml(projectDir string) Services {
-	// TODO need to handle if a filepath is passed in
-	if processComposeYaml := lookupProcessCompose(projectDir, ""); processComposeYaml != "" {
-		userSvcs, err := readProcessCompose(processComposeYaml)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error reading process-compose.yaml: %s, skipping", err)
-			return nil
-		}
-		return userSvcs
+func FromUserProcessCompose(projectDir, userProcessCompose string) Services {
+	processComposeYaml := lookupProcessCompose(projectDir, userProcessCompose)
+	if processComposeYaml == "" {
+		return nil
 	}
-	return Services{}
+
+	userSvcs, err := FromProcessCompose(processComposeYaml)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error reading process-compose.yaml: %s, skipping", err)
+		return nil
+	}
+	return userSvcs
 }
 
-func readProcessCompose(path string) (Services, error) {
+func FromProcessCompose(path string) (Services, error) {
 	processCompose := &types.Project{}
 	services := Services{}
-	errors := errors.WithStack(cuecfg.ParseFile(path, processCompose))
-	if errors != nil {
-		return nil, errors
+	err := errors.WithStack(cuecfg.ParseFile(path, processCompose))
+	if err != nil {
+		return nil, err
 	}
 
 	for name := range processCompose.Processes {
@@ -40,6 +46,18 @@ func readProcessCompose(path string) (Services, error) {
 	}
 
 	return services, nil
+}
+
+func NamesFromProcessCompose(content []byte) ([]string, error) {
+	var processCompose types.Project
+	if err := yaml.Unmarshal(content, &processCompose); err != nil {
+		return nil, err
+	}
+	names := []string{}
+	for name := range processCompose.Processes {
+		names = append(names, name)
+	}
+	return names, nil
 }
 
 func lookupProcessCompose(projectDir, path string) string {

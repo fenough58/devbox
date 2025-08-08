@@ -1,8 +1,13 @@
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
+// Use of this source code is governed by the license in the LICENSE file.
+
 package xdg
 
 import (
 	"os"
 	"path/filepath"
+
+	"go.jetify.com/devbox/internal/envir"
 )
 
 func DataSubpath(subpath string) string {
@@ -21,12 +26,12 @@ func StateSubpath(subpath string) string {
 	return filepath.Join(stateDir(), subpath)
 }
 
-func dataDir() string   { return resolveDir("XDG_DATA_HOME", ".local/share") }
-func configDir() string { return resolveDir("XDG_CONFIG_HOME", ".config") }
-func cacheDir() string  { return resolveDir("XDG_CACHE_HOME", ".cache") }
-func stateDir() string  { return resolveDir("XDG_STATE_HOME", ".local/state") }
+func dataDir() string   { return resolveDir(envir.XDGDataHome, ".local/share") }
+func configDir() string { return resolveDir(envir.XDGConfigHome, ".config") }
+func cacheDir() string  { return resolveDir(envir.XDGCacheHome, ".cache") }
+func stateDir() string  { return resolveDir(envir.XDGStateHome, ".local/state") }
 
-func resolveDir(envvar string, defaultPath string) string {
+func resolveDir(envvar, defaultPath string) string {
 	dir := os.Getenv(envvar)
 	if dir != "" {
 		return dir

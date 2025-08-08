@@ -1,8 +1,13 @@
 {
     "name": "postgresql",
-    "version": "0.0.1",
-    "match": "^postgresql(_[0-9]+)?$",
-    "readme": "To initialize the database run `initdb`.",
+    "version": "0.0.2",
+    "description": "To initialize the database run `initdb`.",
+    "packages": {
+        "glibcLocales": {
+            "version": "latest",
+            "platforms": ["x86_64-linux", "aarch64-linux"]
+        }
+    },
     "env": {
         "PGDATA": "{{ .Virtenv }}/data",
         "PGHOST": "{{ .Virtenv }}"
@@ -10,11 +15,5 @@
     "create_files": {
         "{{ .Virtenv }}/data": "",
         "{{ .Virtenv }}/process-compose.yaml": "postgresql/process-compose.yaml"
-    },
-    "services": {
-        "postgresql": {
-            "start": "pg_ctl start -l {{ .Virtenv }}/logfile -o \"-k {{ .Virtenv }}\"",
-            "stop": "pg_ctl stop"
-        }
     }
 }

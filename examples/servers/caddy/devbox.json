@@ -1,8 +1,11 @@
 {
   "packages": [
-    "caddy"
+    "caddy@latest"
   ],
   "shell": {
-    "init_hook": null
+    "init_hook": [],
+    "scripts": {
+      "start": "caddy run --config=devbox.d/caddy/Caddyfile"
+    }
   }
 }

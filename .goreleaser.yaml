@@ -10,23 +10,30 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}" # For reproducible builds
     ldflags:
       - -s -w
-      - -X go.jetpack.io/devbox/internal/build.Version={{.Version}}
-      - -X go.jetpack.io/devbox/internal/build.Commit={{.Commit}}
-      - -X go.jetpack.io/devbox/internal/build.CommitDate={{.CommitDate}}
-      - -X go.jetpack.io/devbox/internal/build.SentryDSN={{ .Env.SENTRY_DSN }}
-      - -X go.jetpack.io/devbox/internal/build.TelemetryKey={{ .Env.TELEMETRY_KEY }}
+      - -X go.jetify.com/devbox/internal/build.Version={{.Version}}
+      - -X go.jetify.com/devbox/internal/build.Commit={{.Commit}}
+      - -X go.jetify.com/devbox/internal/build.CommitDate={{.CommitDate}}
+      - -X go.jetify.com/devbox/internal/build.SentryDSN={{ .Env.SENTRY_DSN }}
+      - -X go.jetify.com/devbox/internal/build.TelemetryKey={{ .Env.TELEMETRY_KEY }}
     env:
       - CGO_ENABLED=0
       - GO111MODULE=on
     goos:
       - linux
       - darwin
+    goarch:
+      - 386
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - 7
 archives:
   - files:
       - no-files-will-match-* # Glob that does not match to create archive with only binaries.
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if eq .Arch "arm" }}v{{ .Arm }}l{{ end }}'
 snapshot:
-  name_template: "{{ incpatch .Version }}-dev"
+  name_template: "{{ .Env.EDGE_TAG }}"
 checksum:
   name_template: "checksums.txt"
   algorithm: sha256
@@ -34,7 +41,7 @@ release:
   prerelease: auto
   draft: true
   github:
-    owner: jetpack-io
+    owner: jetify-com
     name: devbox
 announce:
   discord:

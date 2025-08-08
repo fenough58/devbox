@@ -1,3 +1,6 @@
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
+// Use of this source code is governed by the license in the LICENSE file.
+
 package fileutil
 
 // TODO: publish as it's own shared package that other binaries can use.
@@ -10,23 +13,23 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/mholt/archiver/v4"
+	"github.com/mholt/archives"
 )
 
 func Untar(archive io.Reader, destPath string) error {
-	err := TryExists(destPath)
+	_, err := os.Stat(destPath)
 	if err != nil {
 		return err
 	}
 
 	// We assume `tar.gz` since that's the only format we need for now.
-	format := archiver.CompressedArchive{
-		Compression: archiver.Gz{},
-		Archival:    archiver.Tar{},
+	format := archives.CompressedArchive{
+		Compression: archives.Gz{},
+		Archival:    archives.Tar{},
 	}
 
 	// The handler will be called for each entry in the archive.
-	handler := func(ctx context.Context, fromFile archiver.File) error {
+	handler := func(ctx context.Context, fromFile archives.FileInfo) error {
 		// TODO: consider whether the path provided in the archive is a valid
 		// relative path to begin with.
 		rel := filepath.Clean(fromFile.NameInArchive)
@@ -39,17 +42,17 @@ func Untar(archive io.Reader, destPath string) error {
 		case mode.IsRegular():
 			return untarFile(fromFile, abs)
 		case mode.IsDir():
-			return os.MkdirAll(abs, 0755)
+			return os.MkdirAll(abs, 0o755)
 		default:
 			return fmt.Errorf("archive contained entry %s of unsupported file type %v", fromFile.Name(), mode)
 		}
 	}
 
 	// Start extraction using our handler.
-	return format.Extract(context.Background(), archive, nil /* all files */, handler)
+	return format.Extract(context.Background(), archive, handler)
 }
 
-func untarFile(fromFile archiver.File, abs string) error {
+func untarFile(fromFile archives.FileInfo, abs string) error {
 	fromReader, err := fromFile.Open()
 	if err != nil {
 		return err

@@ -1,7 +1,21 @@
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
+// Use of this source code is governed by the license in the LICENSE file.
+
 package plugin
 
+import (
+	"go.jetify.com/devbox/internal/lock"
+)
+
 type Manager struct {
-	addMode bool
+	devboxProject
+
+	lockfile *lock.File
+}
+
+type devboxProject interface {
+	AllPackageNamesIncludingRemovedTriggerPackages() []string
+	ProjectDir() string
 }
 
 type managerOption func(*Manager)
@@ -12,9 +26,15 @@ func NewManager(opts ...managerOption) *Manager {
 	return m
 }
 
-func WithAddMode() managerOption {
+func WithLockfile(lockfile *lock.File) managerOption {
 	return func(m *Manager) {
-		m.addMode = true
+		m.lockfile = lockfile
+	}
+}
+
+func WithDevbox(provider devboxProject) managerOption {
+	return func(m *Manager) {
+		m.devboxProject = provider
 	}
 }
 

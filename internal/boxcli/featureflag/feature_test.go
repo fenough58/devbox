@@ -1,10 +1,15 @@
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
+// Use of this source code is governed by the license in the LICENSE file.
+
 package featureflag
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestEnabledFeature(t *testing.T) {
 	name := "TestEnabledFeature"
-	enabled(name)
+	enable(name)
 	if !features[name].Enabled() {
 		t.Errorf("got %s.Enabled() = false, want true.", name)
 	}
@@ -12,7 +17,7 @@ func TestEnabledFeature(t *testing.T) {
 
 func TestDisabledFeature(t *testing.T) {
 	name := "TestDisabledFeature"
-	disabled(name)
+	disable(name)
 	if features[name].Enabled() {
 		t.Errorf("got %s.Enabled() = true, want false.", name)
 	}
@@ -20,8 +25,8 @@ func TestDisabledFeature(t *testing.T) {
 
 func TestEnabledFeatureEnv(t *testing.T) {
 	name := "TestEnabledFeatureEnv"
-	disabled(name)
-	t.Setenv("DEVBOX_FEATURE_"+name, "1")
+	disable(name)
+	t.Setenv(envNamePrefix+name, "1")
 	if !features[name].Enabled() {
 		t.Errorf("got %s.Enabled() = false, want true.", name)
 	}

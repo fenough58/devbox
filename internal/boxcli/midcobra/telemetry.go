@@ -1,26 +1,20 @@
-// Copyright 2022 Jetpack Technologies Inc and contributors. All rights reserved.
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
 // Use of this source code is governed by the license in the LICENSE file.
 
 package midcobra
 
 import (
-	"fmt"
-	"io"
 	"os"
 	"runtime/trace"
 	"sort"
-	"strconv"
-	"strings"
-	"time"
 
-	segment "github.com/segmentio/analytics-go"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"go.jetpack.io/devbox"
-	"go.jetpack.io/devbox/internal/boxcli/featureflag"
-	"go.jetpack.io/devbox/internal/build"
-	"go.jetpack.io/devbox/internal/cloud/envir"
-	"go.jetpack.io/devbox/internal/telemetry"
+	"go.jetify.com/devbox/internal/boxcli/featureflag"
+	"go.jetify.com/devbox/internal/devbox"
+	"go.jetify.com/devbox/internal/devbox/devopt"
+	"go.jetify.com/devbox/internal/envir"
+	"go.jetify.com/devbox/internal/telemetry"
 )
 
 // We collect some light telemetry to be able to improve devbox over time.
@@ -33,24 +27,13 @@ func Telemetry() Middleware {
 	return &telemetryMiddleware{}
 }
 
-type telemetryMiddleware struct {
-	// Used during execution:
-	startTime time.Time
-}
+type telemetryMiddleware struct{}
 
 // telemetryMiddleware implements interface Middleware (compile-time check)
 var _ Middleware = (*telemetryMiddleware)(nil)
 
 func (m *telemetryMiddleware) preRun(cmd *cobra.Command, args []string) {
-	m.startTime = telemetry.CommandStartTime()
-
-	telemetry.Start(telemetry.AppDevbox)
-	ctx := cmd.Context()
-	defer trace.StartRegion(ctx, "telemetryPreRun").End()
-	if !telemetry.Enabled() {
-		trace.Log(ctx, "telemetry", "telemetry is disabled")
-		return
-	}
+	telemetry.Start()
 }
 
 func (m *telemetryMiddleware) postRun(cmd *cobra.Command, args []string, runErr error) {
@@ -59,8 +42,8 @@ func (m *telemetryMiddleware) postRun(cmd *cobra.Command, args []string, runErr 
 
 	meta := telemetry.Metadata{
 		FeatureFlags: featureflag.All(),
-		CloudRegion:  envir.GetRegion(),
-		CloudCache:   os.Getenv("DEVBOX_CACHE"),
+		CloudRegion:  os.Getenv(envir.DevboxRegion),
+		CloudCache:   os.Getenv(envir.DevboxCache),
 	}
 
 	subcmd, flags, err := getSubcommand(cmd, args)
@@ -70,131 +53,18 @@ func (m *telemetryMiddleware) postRun(cmd *cobra.Command, args []string, runErr 
 	}
 	meta.Command = subcmd.CommandPath()
 	meta.CommandFlags = flags
+
 	meta.Packages, meta.NixpkgsHash = getPackagesAndCommitHash(cmd)
-	meta.InShell, _ = strconv.ParseBool(os.Getenv("DEVBOX_SHELL_ENABLED"))
-	meta.InBrowser, _ = strconv.ParseBool(os.Getenv("START_WEB_TERMINAL"))
+	meta.InShell = envir.IsDevboxShellEnabled()
+	meta.InBrowser = envir.IsInBrowser()
 	meta.InCloud = envir.IsDevboxCloud()
-	telemetry.Error(runErr, meta)
 
-	if !telemetry.Enabled() {
+	if runErr != nil {
+		telemetry.Error(runErr, meta)
+		// TODO: This is skipping event logging of calls that end in error. We probably want to log them.
 		return
 	}
-	evt := m.newEventIfValid(cmd, args, runErr)
-	if evt == nil {
-		return
-	}
-	m.trackEvent(evt) // Segment
-}
-
-// Consider renaming this to commandEvent
-// since it has info about the specific command run.
-type event struct {
-	telemetry.Event
-	Command       string
-	CommandArgs   []string
-	CommandError  error
-	CommandHidden bool
-	Failed        bool
-	Packages      []string
-	CommitHash    string // the nikpkgs commit hash in devbox.json
-	InDevboxShell bool
-	DevboxEnv     map[string]any // Devbox-specific environment variables
-	SentryEventID string
-	Shell         string
-}
-
-// newEventIfValid creates a new telemetry event, but returns nil if we cannot construct
-// a valid event.
-func (m *telemetryMiddleware) newEventIfValid(cmd *cobra.Command, args []string, runErr error) *event {
-	subcmd, flags, parseErr := getSubcommand(cmd, args)
-	if parseErr != nil {
-		// Ignore invalid commands
-		return nil
-	}
-
-	pkgs, hash := getPackagesAndCommitHash(cmd)
-
-	// an empty userID means that we do not have a github username saved
-	userID := telemetry.UserIDFromGithubUsername()
-
-	devboxEnv := map[string]interface{}{}
-	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "DEVBOX") && strings.Contains(e, "=") {
-			key := strings.Split(e, "=")[0]
-			devboxEnv[key] = os.Getenv(key)
-		}
-	}
-
-	return &event{
-		Event: telemetry.Event{
-			AnonymousID: telemetry.DeviceID,
-			AppName:     telemetry.AppDevbox,
-			AppVersion:  build.Version,
-			CloudRegion: envir.GetRegion(),
-			Duration:    time.Since(m.startTime),
-			OsName:      build.OS(),
-			UserID:      userID,
-		},
-		Command:      subcmd.CommandPath(),
-		CommandArgs:  flags,
-		CommandError: runErr,
-		// The command is hidden if either the top-level command is hidden or
-		// the specific sub-command that was executed is hidden.
-		CommandHidden: cmd.Hidden || subcmd.Hidden,
-		Failed:        runErr != nil,
-		Packages:      pkgs,
-		CommitHash:    hash,
-		InDevboxShell: devbox.IsDevboxShellEnabled(),
-		DevboxEnv:     devboxEnv,
-		Shell:         os.Getenv("SHELL"),
-	}
-}
-
-func (m *telemetryMiddleware) trackEvent(evt *event) {
-	if evt == nil || evt.CommandHidden {
-		return
-	}
-
-	if evt.CommandError != nil {
-		evt.SentryEventID = telemetry.ExecutionID
-	}
-	segmentClient := telemetry.NewSegmentClient(build.TelemetryKey)
-	defer func() {
-		_ = segmentClient.Close()
-	}()
-
-	// deliberately ignore error
-	_ = segmentClient.Enqueue(segment.Identify{
-		AnonymousId: evt.AnonymousID,
-		UserId:      evt.UserID,
-	})
-
-	_ = segmentClient.Enqueue(segment.Track{ // Ignore errors, telemetry is best effort
-		AnonymousId: evt.AnonymousID, // Use device id instead
-		Event:       fmt.Sprintf("[%s] Command: %s", evt.AppName, evt.Command),
-		Context: &segment.Context{
-			Device: segment.DeviceInfo{
-				Id: evt.AnonymousID,
-			},
-			App: segment.AppInfo{
-				Name:    evt.AppName,
-				Version: evt.AppVersion,
-			},
-			OS: segment.OSInfo{
-				Name: evt.OsName,
-			},
-		},
-		Properties: segment.NewProperties().
-			Set("cloud_region", evt.CloudRegion).
-			Set("command", evt.Command).
-			Set("command_args", evt.CommandArgs).
-			Set("failed", evt.Failed).
-			Set("duration", evt.Duration.Milliseconds()).
-			Set("packages", evt.Packages).
-			Set("sentry_event_id", evt.SentryEventID).
-			Set("shell", evt.Shell),
-		UserId: evt.UserID,
-	})
+	telemetry.Event(telemetry.EventCommandSuccess, meta)
 }
 
 func getSubcommand(cmd *cobra.Command, args []string) (subcmd *cobra.Command, flags []string, err error) {
@@ -223,10 +93,15 @@ func getPackagesAndCommitHash(c *cobra.Command) ([]string, string) {
 		path = configFlag.Value.String()
 	}
 
-	box, err := devbox.Open(path, os.Stdout)
+	box, err := devbox.Open(&devopt.Opts{
+		Dir:            path,
+		Stderr:         os.Stderr,
+		IgnoreWarnings: true,
+	})
 	if err != nil {
 		return []string{}, ""
 	}
 
-	return box.Config().MergedPackages(io.Discard), box.Config().Nixpkgs.Commit
+	return box.AllPackageNamesIncludingRemovedTriggerPackages(),
+		box.Lockfile().Stdenv().Rev
 }

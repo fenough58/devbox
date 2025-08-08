@@ -1,29 +1,31 @@
+// Copyright 2024 Jetify Inc. and contributors. All rights reserved.
+// Use of this source code is governed by the license in the LICENSE file.
+
 package plugin
 
 import (
-	"go.jetpack.io/devbox/internal/services"
+	"fmt"
+	"os"
+
+	"go.jetify.com/devbox/internal/services"
 )
 
-func GetServices(pkgs []string, projectDir string) (services.Services, error) {
-	svcs := services.Services{}
-	for _, pkg := range pkgs {
-		conf, err := getConfigIfAny(pkg, projectDir)
+func GetServices(configs []*Config) (services.Services, error) {
+	allSvcs := services.Services{}
+	for _, conf := range configs {
+		svcs, err := conf.Services()
 		if err != nil {
-			return nil, err
-		}
-		if conf == nil {
+			fmt.Fprintf(
+				os.Stderr,
+				"error reading services in plugin \"%s\", skipping",
+				conf.Name,
+			)
 			continue
 		}
-
-		if file, hasProcessComposeYaml := conf.ProcessComposeYaml(); hasProcessComposeYaml {
-			svc := services.Service{
-				Name:               conf.Name,
-				Env:                conf.Env,
-				ProcessComposePath: file,
-			}
-			svcs[conf.Name] = svc
+		for name, svc := range svcs {
+			allSvcs[name] = svc
 		}
-
 	}
-	return svcs, nil
+
+	return allSvcs, nil
 }

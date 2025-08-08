@@ -1,0 +1,23 @@
+{
+  "packages": [
+    "mysql80@latest"
+  ],
+  "shell": {
+    "init_hook": [],
+    "scripts": {
+      "connect_db": [
+        "mysql -u devbox_user -p -D devbox_lamp"
+      ],
+      "test_db_setup": [
+        "mkdir -p /tmp/devbox/mariadb/run",
+        "devbox services up -b",
+        "sleep 5",
+        "mysql -u root --password='' < setup_db.sql",
+        "devbox services stop"
+      ]
+    }
+  },
+  "env": {
+    "MYSQL_UNIX_PORT": "/tmp/devbox/mariadb/run/mysql.sock"
+   }
+}
