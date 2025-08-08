@@ -140,6 +140,7 @@ jobs:
             
 
     runs-on: ${{ matrix.os }}
+
     timeout-minutes: 60
     env:
       # For devbox.json tests, we default to non-debug mode since the debug output is less useful than for unit testscripts.
@@ -167,9 +168,18 @@ jobs:
       - name: Install devbox
         uses: jetify-com/devbox-install-action@v0.13.0
         with:
-          enable-cache: true
-      - name: Run fast tests
-        if: matrix.run-project-tests == 'project-tests-off'
+          logger: pretty
+          extra-conf: experimental-features = ca-derivations fetch-closure
+          nix-package-url: https://releases.nixos.org/nix/nix-${{ matrix.nix-version }}/nix-${{ matrix.nix-version }}-${{ runner.arch == 'X64' && 'x86_64' || 'aarch64' }}-${{ runner.os == 'macOS' && 'darwin' || 'linux' }}.tar.xz
+      - name: Run tests
+        env:
+          # For devbox.json tests, we default to non-debug mode since the debug output is less useful than for unit testscripts.
+          # But we allow overriding via inputs.example-debug
+          DEVBOX_DEBUG: ${{ (!matrix.run-devbox-json-tests || inputs.example-debug) && '1' || '0' }}
+          DEVBOX_RUN_DEVBOX_JSON_TESTS: ${{ matrix.run-devbox-json-tests }}
+          # Used in `go test -timeout` flag. Needs a value that time.ParseDuration can parse.
+          DEVBOX_GOLANG_TEST_TIMEOUT: "${{ (github.ref == 'refs/heads/main' || inputs.run-mac-tests) && '35m' || '40m' }}"
+
         run: |
           echo "::group::Nix version"
           nix --version
