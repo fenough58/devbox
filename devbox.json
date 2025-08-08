@@ -2,13 +2,14 @@
   "name": "devbox",
   "description": "Instant, easy, and predictable development environments",
   "packages": {
-    "go": "latest",
-    "runx:golangci/golangci-lint": "latest",
-    "runx:mvdan/gofumpt": "latest",
+
+    "fd":  "latest",
+    "git": "latest",
+    "go":  "latest"
   },
   "env": {
     "GOENV": "off",
-    "PATH": "$PATH:$PWD/dist",
+    "PATH":  "$PWD/dist/tools:$PATH:$PWD/dist"
   },
   "shell": {
     "init_hook": [
@@ -17,6 +18,7 @@
       "test -z $FISH_VERSION && \\",
       "unset       CGO_ENABLED GO111MODULE GOARCH GOFLAGS GOMOD GOOS GOROOT GOTOOLCHAIN GOWORK || \\",
       "set --erase CGO_ENABLED GO111MODULE GOARCH GOFLAGS GOMOD GOOS GOROOT GOTOOLCHAIN GOWORK",
+      "GOBIN=$PWD/dist/tools go install tool"
     ],
     "scripts": {
       // Build devbox for the current platform
@@ -29,7 +31,7 @@
         "devbox run build-darwin-amd64",
         "devbox run build-darwin-arm64",
         "devbox run build-linux-amd64",
-        "devbox run build-linux-arm64",
+        "devbox run build-linux-arm64"
       ],
       // Open VSCode
       "code": "code .",
@@ -38,6 +40,7 @@
       "test": "go test -race -cover ./...",
       "test-projects-only": "DEVBOX_RUN_PROJECT_TESTS=1 go test -v -timeout ${DEVBOX_GOLANG_TEST_TIMEOUT:-30m} ./... -run \"TestExamples/development_haskell_run_test.test\"",
       "update-examples": "devbox run build && go run testscripts/testrunner/updater/main.go",
+
       // Updates the Flake's vendorHash: First run `go mod vendor` to vendor
       // the dependencies, then hash the vendor directory with Nix.
       // The hash is saved to the `vendor-hash` file, which is then
@@ -47,7 +50,7 @@
         "vendor=$(realpath $(mktemp -d))",
         "trap \"rm -rf $vendor\" EXIT",
         "go mod vendor -o $vendor",
-        "nix hash path $vendor >vendor-hash",
+        "nix hash path $vendor >vendor-hash"
       ],
       "tidy": [
         "go mod tidy",
@@ -75,3 +78,4 @@
     },
   },
 }
+

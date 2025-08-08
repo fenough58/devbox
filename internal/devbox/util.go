@@ -12,11 +12,11 @@ import (
 
 	"github.com/pkg/errors"
 
-	"go.jetpack.io/devbox/internal/devbox/devopt"
-	"go.jetpack.io/devbox/internal/xdg"
+	"go.jetify.com/devbox/internal/devbox/devopt"
+	"go.jetify.com/devbox/internal/xdg"
 )
 
-const processComposeVersion = "1.24.2"
+const processComposeVersion = "1.64.1"
 
 var utilProjectConfigPath string
 

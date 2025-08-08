@@ -6,28 +6,28 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    { self
+    , nixpkgs
+    , flake-utils
+    ,
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        lastTag = "0.13.6";
+        lastTag = "0.14.2";
 
-        revision =
-          if (self ? shortRev)
-          then "${self.shortRev}"
-          else "${self.dirtyShortRev or "dirty"}";
+        revision = if (self ? shortRev) then "${self.shortRev}" else "${self.dirtyShortRev or "dirty"}";
 
         # Add the commit to the version string for flake builds
         version = "${lastTag}";
 
         # Run `devbox run update-flake` to update the vendor-hash
-        vendorHash =
-          if builtins.pathExists ./vendor-hash
-          then builtins.readFile ./vendor-hash
-          else "";
+        vendorHash = if builtins.pathExists ./vendor-hash then builtins.readFile ./vendor-hash else "";
 
-        buildGoModule = pkgs.buildGo123Module;
+        buildGoModule = pkgs.buildGo124Module;
 
       in
       {
@@ -43,9 +43,12 @@
           ldflags = [
             "-s"
             "-w"
-            "-X go.jetpack.io/devbox/internal/build.Version=${version}"
-            "-X go.jetpack.io/devbox/internal/build.Commit=${revision}"
+            "-X go.jetify.com/devbox/internal/build.Version=${version}"
+            "-X go.jetify.com/devbox/internal/build.Commit=${revision}"
           ];
+
+          # Don't generate test binaries (as we'd include them as a bin)
+          excludedPackages = [ "testscripts" ];
 
           # Disable tests if they require network access or are integration tests
           doCheck = false;

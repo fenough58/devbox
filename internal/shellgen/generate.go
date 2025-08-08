@@ -15,9 +15,9 @@ import (
 	"text/template"
 
 	"github.com/pkg/errors"
-	"go.jetpack.io/devbox/internal/cuecfg"
-	"go.jetpack.io/devbox/internal/debug"
-	"go.jetpack.io/devbox/internal/redact"
+	"go.jetify.com/devbox/internal/cuecfg"
+	"go.jetify.com/devbox/internal/debug"
+	"go.jetify.com/devbox/internal/redact"
 )
 
 //go:embed tmpl/*
@@ -49,7 +49,7 @@ func GenerateForPrintEnv(ctx context.Context, devbox devboxer) error {
 	}
 
 	if plan.needsGlibcPatch() {
-		patch, err := newGlibcPatchFlake(devbox.Config().NixPkgsCommitHash(), plan.Packages)
+		patch, err := newGlibcPatchFlake(devbox.Lockfile().Stdenv(), plan.Packages)
 		if err != nil {
 			return redact.Errorf("generate glibc patch flake: %v", err)
 		}

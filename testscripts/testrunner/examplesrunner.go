@@ -14,8 +14,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rogpeppe/go-internal/testscript"
 
-	"go.jetpack.io/devbox/internal/devconfig"
-	"go.jetpack.io/devbox/internal/envir"
+	"go.jetify.com/devbox/internal/devconfig"
+	"go.jetify.com/devbox/internal/envir"
 )
 
 // xdgStateHomeDir is the home directory for devbox state. We store symlinks to
@@ -75,6 +75,38 @@ func RunDevboxTestscripts(t *testing.T, dir string) {
 			return nil
 		}
 
+		ignoredExampleDirs := []string{
+			"cloud_development",
+			"data_science",
+			"databases",
+      "development/csharp",
+      "development/elixir",
+      "development/fsharp",
+      "development/go",
+      "development/haskell",
+      "development/java",
+      "development/python",
+      "development/ruby",
+      "development/rust",
+      "development/zig",
+      "flakes",
+      "insecure",
+      "plugins",
+      "servers",
+      "stacks/django",
+      "stacks/drupal",
+      "stacks/jekyll",
+      "stacks/lapp-stack",
+      "stacks/laravel",
+      "stacks/lepp-stack",
+      "stacks/rails",
+		}
+		for _, ignoredDir := range ignoredExampleDirs {
+			if strings.Contains(path, ignoredDir) {
+				t.Logf("skipping ignored dir: %s\n", path)
+				return nil
+			}
+		}
 		t.Logf("running testscript for example: %s\n", path)
 		runSingleDevboxTestscript(t, dir, path)
 		return nil

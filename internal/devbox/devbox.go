@@ -23,29 +23,30 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
-	"go.jetpack.io/devbox/internal/boxcli/usererr"
-	"go.jetpack.io/devbox/internal/cachehash"
-	"go.jetpack.io/devbox/internal/cmdutil"
-	"go.jetpack.io/devbox/internal/conf"
-	"go.jetpack.io/devbox/internal/debug"
-	"go.jetpack.io/devbox/internal/devbox/devopt"
-	"go.jetpack.io/devbox/internal/devbox/envpath"
-	"go.jetpack.io/devbox/internal/devbox/generate"
-	"go.jetpack.io/devbox/internal/devconfig"
-	"go.jetpack.io/devbox/internal/devconfig/configfile"
-	"go.jetpack.io/devbox/internal/devpkg"
-	"go.jetpack.io/devbox/internal/devpkg/pkgtype"
-	"go.jetpack.io/devbox/internal/envir"
-	"go.jetpack.io/devbox/internal/fileutil"
-	"go.jetpack.io/devbox/internal/lock"
-	"go.jetpack.io/devbox/internal/nix"
-	"go.jetpack.io/devbox/internal/plugin"
-	"go.jetpack.io/devbox/internal/redact"
-	"go.jetpack.io/devbox/internal/searcher"
-	"go.jetpack.io/devbox/internal/services"
-	"go.jetpack.io/devbox/internal/shellgen"
-	"go.jetpack.io/devbox/internal/telemetry"
-	"go.jetpack.io/devbox/internal/ux"
+	"go.jetify.com/devbox/internal/boxcli/usererr"
+	"go.jetify.com/devbox/internal/cachehash"
+	"go.jetify.com/devbox/internal/cmdutil"
+	"go.jetify.com/devbox/internal/conf"
+	"go.jetify.com/devbox/internal/debug"
+	"go.jetify.com/devbox/internal/devbox/devopt"
+	"go.jetify.com/devbox/internal/devbox/envpath"
+	"go.jetify.com/devbox/internal/devbox/generate"
+	"go.jetify.com/devbox/internal/devconfig"
+	"go.jetify.com/devbox/internal/devconfig/configfile"
+	"go.jetify.com/devbox/internal/devpkg"
+	"go.jetify.com/devbox/internal/devpkg/pkgtype"
+	"go.jetify.com/devbox/internal/envir"
+	"go.jetify.com/devbox/internal/fileutil"
+	"go.jetify.com/devbox/internal/lock"
+	"go.jetify.com/devbox/internal/nix"
+	"go.jetify.com/devbox/internal/plugin"
+	"go.jetify.com/devbox/internal/redact"
+	"go.jetify.com/devbox/internal/searcher"
+	"go.jetify.com/devbox/internal/services"
+	"go.jetify.com/devbox/internal/shellgen"
+	"go.jetify.com/devbox/internal/telemetry"
+	"go.jetify.com/devbox/internal/ux"
+	"go.jetify.com/devbox/nix/flake"
 )
 
 const (
@@ -115,7 +116,7 @@ func Open(opts *devopt.Opts) (*Devbox, error) {
 		cfg:                      cfg,
 		env:                      opts.Env,
 		environment:              environment,
-		nix:                      &nix.Nix{},
+		nix:                      &nix.NixInstance{},
 		projectDir:               filepath.Dir(cfg.Root.AbsRootPath),
 		pluginManager:            plugin.NewManager(),
 		stderr:                   opts.Stderr,
@@ -164,8 +165,9 @@ func Open(opts *devopt.Opts) (*Devbox, error) {
 		}
 		ux.Fwarningf(
 			os.Stderr, // Always stderr. box.writer should probably always be err.
-			"Your devbox.json contains packages in legacy format. "+
+			"Your devbox.json at %s contains packages in legacy format. "+
 				"Please run `devbox %supdate` to update your devbox.json.\n",
+			box.projectDir,
 			lo.Ternary(box.projectDir == globalPath, "global ", ""),
 		)
 	}
@@ -202,8 +204,14 @@ func (d *Devbox) ConfigHash() (string, error) {
 	return cachehash.Bytes(buf.Bytes()), nil
 }
 
-func (d *Devbox) NixPkgsCommitHash() string {
-	return d.cfg.NixPkgsCommitHash()
+func (d *Devbox) Stdenv() flake.Ref {
+	return flake.Ref{
+		Type:  flake.TypeGitHub,
+		Owner: "NixOS",
+		Repo:  "nixpkgs",
+		Ref:   "nixpkgs-unstable",
+		Rev:   d.cfg.NixPkgsCommitHash(),
+	}
 }
 
 func (d *Devbox) Generate(ctx context.Context) error {
@@ -241,7 +249,7 @@ func (d *Devbox) Shell(ctx context.Context, envOpts devopt.EnvOptions) error {
 		WithShellStartTime(telemetry.ShellStart()),
 	}
 
-	shell, err := NewDevboxShell(d, envOpts, opts...)
+	shell, err := d.newShell(envOpts, opts...)
 	if err != nil {
 		return err
 	}
@@ -338,6 +346,9 @@ func (d *Devbox) ListScripts() []string {
 		keys[i] = k
 		i++
 	}
+
+	slices.Sort(keys)
+
 	return keys
 }
 

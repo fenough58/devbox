@@ -4,6 +4,7 @@
 package telemetry
 
 import (
+	"cmp"
 	"io"
 	"log"
 	"os"
@@ -12,10 +13,10 @@ import (
 
 	"github.com/samber/lo"
 	segment "github.com/segmentio/analytics-go"
-	"go.jetpack.io/devbox/internal/nix"
+	"go.jetify.com/devbox/nix"
 
-	"go.jetpack.io/devbox/internal/build"
-	"go.jetpack.io/devbox/internal/envir"
+	"go.jetify.com/devbox/internal/build"
+	"go.jetify.com/devbox/internal/envir"
 )
 
 var segmentClient segment.Client
@@ -34,10 +35,7 @@ func initSegmentClient() bool {
 }
 
 func newTrackMessage(name string, meta Metadata) *segment.Track {
-	nixVersion := "unknown"
-	if v, err := nix.Version(); err == nil {
-		nixVersion = v.Version
-	}
+	nixVersion := cmp.Or(nix.Version(), "unknown")
 
 	dur := time.Since(procStartTime)
 	if !meta.EventStart.IsZero() {
@@ -77,7 +75,7 @@ func newTrackMessage(name string, meta Metadata) *segment.Track {
 		},
 	}
 
-	// Property keys match the API events (search "Devspace Created").
+	// Property keys match the API events.
 	insertEnv := func(envKey, propKey string) {
 		v, ok := os.LookupEnv(envKey)
 		if ok {

@@ -14,9 +14,9 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/tailscale/hujson"
-	"go.jetpack.io/devbox/internal/boxcli/usererr"
-	"go.jetpack.io/devbox/internal/cachehash"
-	"go.jetpack.io/devbox/internal/devbox/shellcmd"
+	"go.jetify.com/devbox/internal/boxcli/usererr"
+	"go.jetify.com/devbox/internal/cachehash"
+	"go.jetify.com/devbox/internal/devbox/shellcmd"
 )
 
 const (
@@ -94,11 +94,8 @@ func (c *ConfigFile) Equals(other *ConfigFile) bool {
 }
 
 func (c *ConfigFile) NixPkgsCommitHash() string {
-	// The commit hash for nixpkgs-unstable on 2023-10-25 from status.nixos.org
-	const DefaultNixpkgsCommit = "75a52265bda7fd25e06e3a67dee3f0354e73243c"
-
-	if c == nil || c.Nixpkgs == nil || c.Nixpkgs.Commit == "" {
-		return DefaultNixpkgsCommit
+	if c == nil || c.Nixpkgs == nil {
+		return ""
 	}
 	return c.Nixpkgs.Commit
 }

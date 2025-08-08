@@ -5,7 +5,6 @@ MySQL can be automatically configured for your dev environment by Devbox via the
 
 [**Example Repo**](https://github.com/jetify-com/devbox/tree/main/examples/databases/mysql)
 
-[![Open In Devspace](../../../static/img/open-in-devspace.svg)](https://auth.jetify.com/devspace/templates/mysql)
 
 ## Adding MySQL to your Shell
 
@@ -46,10 +45,15 @@ MYSQL_BASEDIR=.devbox/nix/profile/default
 MYSQL_HOME=./.devbox/virtenv/mysql/run
 MYSQL_DATADIR=./.devbox/virtenv/mysql/data
 MYSQL_UNIX_PORT=./.devbox/virtenv/mysql/run/mysql.sock
-MYSQL_PID_FILE=./.devbox/mysql/run/mysql.pid
+MYSQL_PID_FILE=./.devbox/virtenv/mysql/run/mysql.pid
+MYSQL_CONF=./devbox.d/mysql/my.cnf
 ```
 
 ### Files
+
+The following helper file will be created in your project directory:
+
+* \{PROJECT_DIR\}/devbox.d/mysql/my.cnf
 
 The plugin will also create the following helper files in your project's `.devbox/virtenv` folder:
 
