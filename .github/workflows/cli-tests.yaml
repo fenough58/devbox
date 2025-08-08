@@ -127,6 +127,7 @@ jobs:
         # This is an optimization that runs tests twice, with and without
         # the devbox.json tests. We can require the other tests to complete before
         # merging, while keeping the others as an additional non-required signal
+
         run-devbox-json-tests: [true]
         # Run tests on:
         # 1. the oldest supported nix version (which is 2.9.0? But determinate-systems installer has 2.12.0)
@@ -232,6 +233,7 @@ jobs:
     needs: build-devbox
     strategy:
       matrix:
+
         os: [ubuntu-latest, macos-latest]
         nix-version: [2.17.0]
 
